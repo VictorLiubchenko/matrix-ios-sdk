@@ -120,6 +120,11 @@ typedef enum : NSUInteger
 @property (nonatomic) NSString *apiPathPrefix;
 
 /**
+ Matrix content respository path.
+ */
+@property (nonatomic) NSString *contentPrefixPath;
+
+/**
  The identity server.
  By default, it points to the defined home server. If needed, change it by setting
  this property.

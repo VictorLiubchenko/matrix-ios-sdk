@@ -37,7 +37,8 @@ NSString *const kMXIdentityAPIPrefixPath = @"/_matrix/identity/api/v1";
  */
 NSString *const kMXContentUriScheme  = @"mxc://";
 NSString *const kMXContentPrefixPath = @"/_matrix/media/v1";
-
+// need like this
+NSString *const kContentPrefixPath = @"_matrix/media/v1";
 /**
  Account data types
  */
@@ -95,7 +96,7 @@ MXAuthAction;
 @end
 
 @implementation MXRestClient
-@synthesize homeserver, homeserverSuffix, credentials, apiPathPrefix, completionQueue;
+@synthesize homeserver, homeserverSuffix, credentials, apiPathPrefix, contentPrefixPath, completionQueue;
 
 -(id)initWithHomeServer:(NSString *)inHomeserver andOnUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock
 {
@@ -104,7 +105,7 @@ MXAuthAction;
     {
         homeserver = inHomeserver;
         apiPathPrefix = kMXAPIPrefixPathR0;
-        
+        contentPrefixPath = kContentPrefixPath;
         httpClient = [[MXHTTPClient alloc] initWithBaseURL:homeserver
                                                accessToken:nil
                          andOnUnrecognizedCertificateBlock:onUnrecognizedCertBlock];
@@ -126,6 +127,8 @@ MXAuthAction;
     {
         homeserver = inCredentials.homeServer;
         apiPathPrefix = kMXAPIPrefixPathR0;
+        contentPrefixPath = kContentPrefixPath;
+
         self.credentials = inCredentials;
         
         httpClient = [[MXHTTPClient alloc] initWithBaseURL:homeserver
@@ -3115,7 +3118,7 @@ MXAuthAction;
                     uploadProgress:(void (^)(NSProgress *uploadProgress))uploadProgress
 {
     // Define an absolute path based on Matrix content respository path instead of the base url
-    NSString* path = [NSString stringWithFormat:@"%@/upload", kMXContentPrefixPath];
+    NSString* path = [NSString stringWithFormat:@"%@/upload", contentPrefixPath];
     NSDictionary *headers = @{@"Content-Type": mimeType};
 
     if (filename.length)
@@ -3165,7 +3168,7 @@ MXAuthAction;
     // Replace the "mxc://" scheme by the absolute http location of the content
     if ([mxcContentURI hasPrefix:kMXContentUriScheme])
     {
-        NSString *mxMediaPrefix = [NSString stringWithFormat:@"%@%@/download/", homeserver, kMXContentPrefixPath];
+        NSString *mxMediaPrefix = [NSString stringWithFormat:@"%@%@/download/", homeserver, contentPrefixPath];
         contentURL = [mxcContentURI stringByReplacingOccurrencesOfString:kMXContentUriScheme withString:mxMediaPrefix];
         
         // Remove the auto generated image tag from the URL
@@ -3188,7 +3191,7 @@ MXAuthAction;
         CGSize sizeInPixels = CGSizeMake(viewSize.width * scale, viewSize.height * scale);
         
         // Replace the "mxc://" scheme by the absolute http location for the content thumbnail
-        NSString *mxThumbnailPrefix = [NSString stringWithFormat:@"%@%@/thumbnail/", homeserver, kMXContentPrefixPath];
+        NSString *mxThumbnailPrefix = [NSString stringWithFormat:@"%@%@/thumbnail/", homeserver, contentPrefixPath];
         thumbnailURL = [mxcContentURI stringByReplacingOccurrencesOfString:kMXContentUriScheme withString:mxThumbnailPrefix];
         
         // Convert MXThumbnailingMethod to parameter string
@@ -3219,7 +3222,7 @@ MXAuthAction;
 
 - (NSString *)urlOfIdenticon:(NSString *)identiconString
 {
-    return [NSString stringWithFormat:@"%@%@/identicon/%@", homeserver, kMXContentPrefixPath, [identiconString stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLHostAllowedCharacterSet]]];
+    return [NSString stringWithFormat:@"%@%@/identicon/%@", homeserver, contentPrefixPath, [identiconString stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLHostAllowedCharacterSet]]];
 }
 
 
