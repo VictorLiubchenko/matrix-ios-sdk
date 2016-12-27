@@ -3168,7 +3168,7 @@ MXAuthAction;
     // Replace the "mxc://" scheme by the absolute http location of the content
     if ([mxcContentURI hasPrefix:kMXContentUriScheme])
     {
-        NSString *mxMediaPrefix = [NSString stringWithFormat:@"%@/%@/download/", homeserver, contentPrefixPath];
+        NSString *mxMediaPrefix = [NSString stringWithFormat:@"%@%@/download/", homeserver, kMXContentPrefixPath];
         contentURL = [mxcContentURI stringByReplacingOccurrencesOfString:kMXContentUriScheme withString:mxMediaPrefix];
         
         // Remove the auto generated image tag from the URL
