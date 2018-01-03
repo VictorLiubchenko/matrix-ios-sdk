@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -19,7 +20,7 @@
 #import "MXJSONModel.h"
 #import "MXUsersDevicesMap.h"
 
-@class MXEvent, MXDeviceInfo, MXKey;
+@class MXEvent, MXDeviceInfo, MXKey, MXUser;
 
 /**
  This file contains definitions of basic JSON responses or objects received
@@ -32,7 +33,7 @@
  Types of third party media.
  The list is not exhautive and depends on the Identity server capabilities.
  */
-typedef NSString* MX3PIDMedium;
+typedef NSString* MX3PIDMedium NS_REFINED_FOR_SWIFT;
 FOUNDATION_EXPORT NSString *const kMX3PIDMediumEmail;
 FOUNDATION_EXPORT NSString *const kMX3PIDMediumMSISDN;
 
@@ -64,7 +65,7 @@ FOUNDATION_EXPORT NSString *const kMX3PIDMediumMSISDN;
     /**
      The number of members joined to the room.
      */
-    @property (nonatomic) NSUInteger numJoinedMembers;
+    @property (nonatomic) NSInteger numJoinedMembers;
 
     /**
      Whether the room may be viewed by guest users without joining.
@@ -90,17 +91,126 @@ FOUNDATION_EXPORT NSString *const kMX3PIDMediumMSISDN;
 
 
 /**
+  `MXPublicRoomsResponse` represents the response of a publicRoom request.
+ */
+@interface MXPublicRoomsResponse : MXJSONModel
+
+/**
+ A batch of MXPublicRoom instances.
+ */
+@property (nonatomic) NSArray<MXPublicRoom*> *chunk;
+
+/**
+ Token that can be used to get the next batch of results.
+ */
+@property (nonatomic) NSString *nextBatch;
+
+/**
+ An estimated count of public rooms matching the request.
+ */
+@property (nonatomic) NSUInteger totalRoomCountEstimate;
+
+@end
+
+
+/**
+ This class describes a third party protocol instance.
+ */
+@interface MXThirdPartyProtocolInstance : MXJSONModel
+
+    /**
+     The network identifier.
+     */
+    @property (nonatomic) NSString *networkId;
+
+    /**
+     The fields (domain...).
+     */
+    @property (nonatomic) NSDictionary<NSString*, NSObject*> *fields;
+
+    /**
+     The instance id.
+     */
+    @property (nonatomic) NSString *instanceId;
+
+    /**
+     The description.
+     */
+    @property (nonatomic) NSString *desc;
+
+    /**
+     The dedicated bot.
+     */
+    @property (nonatomic) NSString *botUserId;
+
+    /**
+     The icon URL.
+     */
+    @property (nonatomic) NSString *icon;
+
+@end
+
+/**
+ This class describes a third party server protocol.
+ */
+@interface MXThirdPartyProtocol : MXJSONModel
+
+    /**
+     The user fields (domain, nick, username...).
+     */
+    @property (nonatomic) NSArray<NSString*> *userFields;
+
+    /**
+     The location fields (domain, channels, room...).
+     */
+    @property (nonatomic) NSArray<NSString*> *locationFields;
+
+    /**
+     The field types.
+     */
+    @property (nonatomic) NSDictionary<NSString*, NSDictionary<NSString*, NSString*>* > *fieldTypes;
+
+    /**
+     The instances.
+     */
+    @property (nonatomic) NSArray<MXThirdPartyProtocolInstance*> *instances;
+@end
+
+/**
+ `MXThirdpartyProtocolsResponse` represents the response of a thirdpartyProtocols request.
+ */
+@interface MXThirdpartyProtocolsResponse : MXJSONModel
+
+    /**
+     Available protocols. 
+     The key is the protocol name; the value, the protocol description.
+     */
+    @property (nonatomic) NSDictionary<NSString*, MXThirdPartyProtocol*> *protocols;
+
+@end
+
+
+/**
  Login flow types
  */
-typedef NSString* MXLoginFlowType;
+typedef NSString* MXLoginFlowType NS_REFINED_FOR_SWIFT;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypePassword;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeRecaptcha;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeOAuth2;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeEmailIdentity;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeToken;
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeDummy;
+FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeMSISDN;
 
 FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeEmailCode; // Deprecated
+
+/**
+ Identifier types
+ */
+typedef NSString* MXLoginIdentifierType;
+FOUNDATION_EXPORT NSString *const kMXLoginIdentifierTypeUser;
+FOUNDATION_EXPORT NSString *const kMXLoginIdentifierTypeThirdParty;
+FOUNDATION_EXPORT NSString *const kMXLoginIdentifierTypePhone;
 
 /**
  `MXLoginFlow` represents a login or a register flow supported by the home server.
@@ -156,9 +266,14 @@ FOUNDATION_EXPORT NSString *const kMXLoginFlowTypeEmailCode; // Deprecated
 @interface MXCredentials : MXJSONModel
 
     /**
-     The home server name.
+     The home server url (ex: "https://matrix.org").
      */
     @property (nonatomic) NSString *homeServer;
+
+    /**
+     The home server name (ex: "matrix.org").
+     */
+    @property (nonatomic, readonly) NSString *homeServerName;
 
     /**
      The obtained user id.
@@ -332,7 +447,7 @@ FOUNDATION_EXPORT NSString *const kMXRoomTagLowPriority;
 /**
  Extract a list of tags from a room tag event.
  
- @param a room tag event (which can contains several tags)
+ @param event a room tag event (which can contains several tags)
  @return a dictionary containing the tags the user defined for one room.
          The key is the tag name. The value, the associated MXRoomTag object.
  */
@@ -437,6 +552,33 @@ FOUNDATION_EXPORT NSString *const kMXPresenceOffline;
 
 @end
 
+/**
+ `MXOpenIdToken` represents the response to the `openIdToken` request.
+ */
+@interface MXOpenIdToken : MXJSONModel
+
+/**
+ The token type.
+ */
+@property (nonatomic) NSString *tokenType;
+
+/**
+ The homeserver name.
+ */
+@property (nonatomic) NSString *matrixServerName;
+
+/**
+ The generated access token.
+ */
+@property (nonatomic) NSString *accessToken;
+
+/**
+ The valid period in seconds of this token.
+ */
+@property (nonatomic) uint64_t expiresIn;
+
+@end
+
 
 @class MXPushRuleCondition;
 
@@ -454,7 +596,7 @@ typedef enum : NSUInteger
     MXPushRuleKindRoom,
     MXPushRuleKindSender,
     MXPushRuleKindUnderride
-} MXPushRuleKind;
+} MXPushRuleKind NS_REFINED_FOR_SWIFT;
 
 /**
  `MXPushRule` defines a push notification rule.
@@ -582,6 +724,7 @@ typedef enum : NSUInteger
     MXPushRuleConditionTypeProfileTag,
     MXPushRuleConditionTypeContainsDisplayName,
     MXPushRuleConditionTypeRoomMemberCount,
+    MXPushRuleConditionTypeSenderNotificationPermission,
 
     // The condition is a custom condition. Refer to its `MXPushRuleConditionString` version
     MXPushRuleConditionTypeCustom = 1000
@@ -595,6 +738,7 @@ FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringEventMatch;
 FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringProfileTag;
 FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringContainsDisplayName;
 FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringRoomMemberCount;
+FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringSenderNotificationPermission;
 
 /**
  `MXPushRuleCondition` represents an additional condition into a rule.
@@ -658,7 +802,7 @@ FOUNDATION_EXPORT NSString *const kMXPushRuleConditionStringRoomMemberCount;
     /**
      Override [MXJSONModel modelFromJSON] by adding scope all decoded `MXPushRule` objects.
 
-     @param JSONDictionaries the JSON data array.
+     @param JSONDictionary the JSON data array.
      @param scope the rule scope (global, device).
      @return the newly created instances.
      */
@@ -902,6 +1046,24 @@ FOUNDATION_EXPORT NSString *const kMXPushRuleScopeStringDevice;
 @end
 
 
+/**
+ `MXUserSearchResponse` represents the response to the /user_directory/search request.
+ */
+@interface MXUserSearchResponse : MXJSONModel
+
+    /**
+     YES if the response does not contain all results.
+     */
+    @property (nonatomic) BOOL limited;
+
+    /**
+     List of users matching the pattern.
+     */
+    @property (nonatomic) NSArray<MXUser*> *results;
+
+@end
+
+
 #pragma mark - Server sync
 #pragma mark -
 
@@ -1139,7 +1301,25 @@ FOUNDATION_EXPORT NSString *const kMXPushRuleScopeStringDevice;
     /**
      List of direct-to-device events.
      */
-@property (nonatomic) NSArray<MXEvent*> *events;
+    @property (nonatomic) NSArray<MXEvent*> *events;
+
+@end
+
+
+/**
+ `MXDeviceListResponse` represents the devices that have changed.
+ */
+@interface MXDeviceListResponse : MXJSONModel
+
+    /**
+     List of user ids whose devices have changed (new, removed).
+     */
+    @property (nonatomic) NSArray<NSString*> *changed;
+
+    /**
+     List of user ids who are no more tracked.
+     */
+    @property (nonatomic) NSArray<NSString*> *left;
 
 @end
 
@@ -1167,6 +1347,17 @@ FOUNDATION_EXPORT NSString *const kMXPushRuleScopeStringDevice;
      Data directly sent to one of user's devices.
      */
     @property (nonatomic) MXToDeviceSyncResponse *toDevice;
+
+    /**
+     Devices list update.
+     */
+    @property (nonatomic) MXDeviceListResponse *deviceLists;
+
+    /**
+     The number of one time keys the server has for our device.
+     algorithm -> number of keys for that algorithm.
+     */
+    @property (nonatomic) NSDictionary<NSString *, NSNumber*> *deviceOneTimeKeysCount;
 
     /**
      List of rooms.

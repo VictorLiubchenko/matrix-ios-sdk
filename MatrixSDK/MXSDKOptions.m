@@ -1,5 +1,6 @@
 /*
  Copyright 2015 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
  
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -14,8 +15,6 @@
  limitations under the License.
  */
 
-#import <UIKit/UIKit.h>
-
 #import "MXSDKOptions.h"
 
 static MXSDKOptions *sharedOnceInstance = nil;
@@ -27,6 +26,33 @@ static MXSDKOptions *sharedOnceInstance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{ sharedOnceInstance = [[self alloc] init]; });
     return sharedOnceInstance;
+}
+
+#pragma mark - Initializations -
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self)
+    {
+        Class mxGoogleAnalyticsClass = NSClassFromString(@"MXGoogleAnalytics");
+        if (mxGoogleAnalyticsClass != nil)
+        {
+            self.analyticsDelegate = [[mxGoogleAnalyticsClass alloc] init];
+        }
+        else
+        {
+            self.analyticsDelegate = nil;
+        }
+
+        _disableIdenticonUseForUserAvatar = NO;
+        _enableCryptoWhenStartingMXSession = NO;
+        _enableGoogleAnalytics = NO;
+        _mediaCacheAppVersion = 0;
+        _applicationGroupIdentifier = nil;
+    }
+    
+    return self;
 }
 
 @end

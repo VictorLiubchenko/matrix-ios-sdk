@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -43,14 +44,13 @@
 
 - (void)testMainThread
 {
-    
-    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:[NSString stringWithFormat:@"%@%@", kMXTestsHomeServerURL, kMXAPIPrefixPathR0]
+    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:kMXTestsHomeServerURL
                                    andOnUnrecognizedCertificateBlock:nil];
 
     XCTestExpectation *expectation = [self expectationWithDescription:@"asyncTest"];
     
     [httpClient requestWithMethod:@"GET"
-                             path:@"publicRooms"
+                             path:[NSString stringWithFormat:@"%@/publicRooms", kMXAPIPrefixPathR0]
                        parameters:nil
                           success:^(NSDictionary *JSONResponse) {
                               XCTAssertTrue([NSThread isMainThread], @"The block callback must be called from the main thread");
@@ -66,7 +66,7 @@
 
 - (void)testCancel
 {
-    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:[NSString stringWithFormat:@"%@%@", kMXTestsHomeServerURL, kMXAPIPrefixPathR0]
+    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:kMXTestsHomeServerURL
                                    andOnUnrecognizedCertificateBlock:nil];
 
     XCTestExpectation *expectation = [self expectationWithDescription:@"asyncTest"];
@@ -89,13 +89,13 @@
 
 - (void)testMXError
 {
-    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:[NSString stringWithFormat:@"%@%@", kMXTestsHomeServerURL, kMXAPIPrefixPathR0]
+    MXHTTPClient *httpClient = [[MXHTTPClient alloc] initWithBaseURL:kMXTestsHomeServerURL
                                    andOnUnrecognizedCertificateBlock:nil];
     
     XCTestExpectation *expectation = [self expectationWithDescription:@"asyncTest"];
     
     [httpClient requestWithMethod:@"GET"
-                             path:@"notExistingAPI"
+                             path:[NSString stringWithFormat:@"%@/notExistingAPI", kMXAPIPrefixPathR0]
                        parameters:nil
                           success:^(NSDictionary *JSONResponse) {
                               XCTFail(@"The request must fail as the API path does not exist");
@@ -137,9 +137,9 @@
     [self waitForExpectationsWithTimeout:10 handler:nil];
 }
 
-- (void)testJitterTimeForRetry
+- (void)testTimeForRetry
 {
-    XCTAssertNotEqual([MXHTTPClient jitterTimeForRetry], [MXHTTPClient jitterTimeForRetry], @"[MXHTTPClient jitterTimeForRetry] cannot return the same value twice");
+    XCTAssertNotEqual([MXHTTPClient timeForRetry:nil], [MXHTTPClient timeForRetry:nil], @"[MXHTTPClient timeForRetry] cannot return the same value twice");
 }
 
 @end

@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -82,103 +83,6 @@
 
         } failure:^(NSError *error) {
             XCTFail(@"Cannot set up intial test conditions - error: %@", error);
-            [expectation fulfill];
-        }];
-    }];
-}
-
-- (void)testRecents
-{
-    [matrixSDKTestsData doMXRestClientTestInABobRoomAndANewTextMessage:self newTextMessage:@"This is a text message for recents" onReadyToTest:^(MXRestClient *bobRestClient, NSString *roomId, NSString *new_text_message_eventId, XCTestExpectation *expectation) {
-        
-        mxSession = [[MXSession alloc] initWithMatrixRestClient:bobRestClient];
-        [mxSession start:^{
-            
-            NSArray *recents = [mxSession recentsWithTypeIn:nil];
-            
-            XCTAssertGreaterThan(recents.count, 0, @"There must be at least one recent");
-            
-            MXEvent *myNewTextMessageEvent;
-            for (MXEvent *event in recents)
-            {
-                XCTAssertNotNil(event.eventId, @"The event must have an eventId to be valid");
-                
-                if ([event.eventId isEqualToString:new_text_message_eventId])
-                {
-                    myNewTextMessageEvent = event;
-                }
-            }
-            
-            XCTAssertNotNil(myNewTextMessageEvent);
-            XCTAssertTrue([myNewTextMessageEvent.type isEqualToString:kMXEventTypeStringRoomMessage]);
-            
-            [expectation fulfill];
-            
-        } failure:^(NSError *error) {
-            XCTFail(@"The request should not fail - NSError: %@", error);
-            [expectation fulfill];
-        }];
-    }];
-}
-
-- (void)testRecentsOrder
-{
-    [matrixSDKTestsData doMXRestClientTestWihBobAndSeveralRoomsAndMessages:self readyToTest:^(MXRestClient *bobRestClient, XCTestExpectation *expectation) {
-
-        mxSession = [[MXSession alloc] initWithMatrixRestClient:bobRestClient];
-        [mxSession start:^{
-            
-            NSArray *recents = [mxSession recentsWithTypeIn:nil];
-            
-            XCTAssertGreaterThanOrEqual(recents.count, 5, @"There must be at least 5 recents");
-            
-            uint64_t prev_ts = ULONG_LONG_MAX;
-            for (MXEvent *event in recents)
-            {
-                XCTAssertNotNil(event.eventId, @"The event must have an eventId to be valid");
-                
-                if (event.originServerTs)
-                {
-                    XCTAssertLessThanOrEqual(event.originServerTs, prev_ts, @"Events must be listed in antichronological order");
-                    prev_ts = event.originServerTs;
-                }
-                else
-                {
-                    NSLog(@"No timestamp in the event data: %@", event);
-                }
-            }
-
-            [expectation fulfill];
-            
-        } failure:^(NSError *error) {
-            XCTFail(@"The request should not fail - NSError: %@", error);
-            [expectation fulfill];
-        }];
-    }];
-}
-
-- (void)testSortRooms
-{
-    [matrixSDKTestsData doMXRestClientTestWihBobAndSeveralRoomsAndMessages:self readyToTest:^(MXRestClient *bobRestClient, XCTestExpectation *expectation) {
-
-        mxSession = [[MXSession alloc] initWithMatrixRestClient:bobRestClient];
-        [mxSession start:^{
-
-            NSArray *recents = [mxSession recentsWithTypeIn:nil];
-
-            NSArray *sortedRooms = [mxSession sortRooms:mxSession.rooms byLastMessageWithTypeIn:nil];
-
-            // Compare 'sortedRooms' last message with 'recents'. They must be the same WITH the same order.
-            XCTAssertEqual(sortedRooms.count, recents.count);
-            for (NSUInteger i =0; i < sortedRooms.count; i++)
-            {
-                XCTAssertEqual([sortedRooms[i] lastMessageWithTypeIn:nil], recents[i], @"Message at position %tu is not the right one", i);
-            }
-
-            [expectation fulfill];
-
-        } failure:^(NSError *error) {
-            XCTFail(@"The request should not fail - NSError: %@", error);
             [expectation fulfill];
         }];
     }];
@@ -671,6 +575,32 @@
             XCTFail(@"The request should not fail - NSError: %@", error);
             [expectation fulfill];
         }];
+    }];
+}
+
+- (void)testDidSyncNotification
+{
+    [matrixSDKTestsData doMXSessionTestWithBobAndARoom:self andStore:[[MXMemoryStore alloc] init] readyToTest:^(MXSession *mxSession2, MXRoom *room, XCTestExpectation *expectation) {
+
+        mxSession = mxSession2;
+
+        id observer;
+        observer = [[NSNotificationCenter defaultCenter] addObserverForName:kMXSessionDidSyncNotification object:mxSession queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *notif) {
+
+            MXSyncResponse *syncResponse = (MXSyncResponse*)notif.userInfo[kMXSessionNotificationSyncResponseKey];
+
+            XCTAssert([syncResponse isKindOfClass:MXSyncResponse.class]);
+            XCTAssert(syncResponse.rooms.join[room.roomId], @"We should receive back the 'Hello' sent in this room");
+
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+            [expectation fulfill];
+        }];
+
+        [room sendTextMessage:@"Hello" success:nil failure:^(NSError *error) {
+            XCTFail(@"The request should not fail - NSError: %@", error);
+            [expectation fulfill];
+        }];
+
     }];
 }
 
@@ -1318,7 +1248,8 @@
 
         mxSession = bobSession;
 
-        id observer = [[NSNotificationCenter defaultCenter] addObserverForName:kMXSessionOnToDeviceEventNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *notif) {
+        id observer;
+        observer = [[NSNotificationCenter defaultCenter] addObserverForName:kMXSessionOnToDeviceEventNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *notif) {
 
             XCTAssertEqual(notif.object, mxSession);
 
@@ -1326,7 +1257,7 @@
             XCTAssert(toDeviceEvent);
 
             XCTAssertEqualObjects(toDeviceEvent.sender, aliceRestClient.credentials.userId);
-            XCTAssertEqual(toDeviceEvent.eventType, MXEventTypeNewDevice);
+            XCTAssertEqual(toDeviceEvent.eventType, MXEventTypeRoomKeyRequest);
 
             [[NSNotificationCenter defaultCenter] removeObserver:observer];
 
@@ -1341,7 +1272,7 @@
                                          }
                                  } forUser:mxSession.myUser.userId];
 
-        [aliceRestClient sendToDevice:kMXEventTypeStringNewDevice contentMap:contentMap success:^{
+        [aliceRestClient sendToDevice:kMXEventTypeStringRoomKeyRequest contentMap:contentMap txnId:nil success:^{
 
         } failure:^(NSError *error) {
             XCTFail(@"Cannot set up intial test conditions - error: %@", error);

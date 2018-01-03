@@ -14,8 +14,12 @@
  limitations under the License.
  */
 
-#import <Foundation/Foundation.h>
+#import "TargetConditionals.h"
+#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <Cocoa/Cocoa.h>
+#endif
 
 #import "MXEvent.h"
 #import "MXJSONModels.h"
@@ -36,6 +40,13 @@
  @return the secret.
  */
 + (NSString*)generateSecret;
+
+/**
+ Generate a random transaction id.
+
+ @return the transaction id.
+ */
++ (NSString*)generateTransactionId;
 
 /**
  Removing new line characters from NSString.
@@ -128,17 +139,17 @@ FOUNDATION_EXPORT NSString *const kMXToolsRegexStringForMatrixEventIdentifier;
 + (NSString*)fileSizeToString:(long)fileSize round:(BOOL)round;
 
 /**
- Get folder size
+ Get folder size.
  
- @param folderPath
- @return folder size in bytes
+ @param folderPath the folder to get size.
+ @return folder size in bytes.
  */
 + (long long)folderSize:(NSString *)folderPath;
 
 /**
- List files in folder
+ List files in folder.
  
- @param folderPath
+ @param folderPath the folder to list files.
  @param isTimeSorted if YES, the files are sorted by creation date from the oldest to the most recent one.
  @param largeFilesFirst if YES move the largest file to the list head (large > 100KB). It can be combined with isTimeSorted.
  @return the list of files by name.
@@ -146,10 +157,10 @@ FOUNDATION_EXPORT NSString *const kMXToolsRegexStringForMatrixEventIdentifier;
 + (NSArray*)listFiles:(NSString *)folderPath timeSorted:(BOOL)isTimeSorted largeFilesFirst:(BOOL)largeFilesFirst;
 
 /**
- Deduce the file extension from a contentType
+ Deduce the file extension from a contentType.
  
- @param contentType
- @return file extension (extension divider is included)
+ @param contentType the content type.
+ @return file extension (extension divider is included).
  */
 + (NSString*)fileExtensionFromContentType:(NSString*)contentType;
 
@@ -161,13 +172,31 @@ FOUNDATION_EXPORT NSString *const kMXToolsRegexStringForMatrixEventIdentifier;
  @discussion
  If the device does not support MP4 file format, the function will use the QuickTime format.
  
- @param the local path of the video to convert.
+ @param videoLocalURL the local path of the video to convert.
  @param success A block object called when the operation succeeded. It returns
  the path of the output video with some metadata.
  @param failure A block object called when the operation failed.
  */
 + (void)convertVideoToMP4:(NSURL*)videoLocalURL
                   success:(void(^)(NSURL *videoLocalURL, NSString *mimetype, CGSize size, double durationInMs))success
-                  failure:(void(^)())failure;
+                  failure:(void(^)(void))failure;
+
+#pragma mark - JSON Serialisation
+
+/**
+ Convert a JSON object (NSArray, NSDictionary) into a JSON string.
+
+ @param jsonObject the object to convert.
+ @return the string corresponding to the JSON object.
+ */
++ (NSString*)serialiseJSONObject:(id)jsonObject;
+
+/**
+ Convert back a string into a JSON object.
+
+ @param jsonString the string corresponding to the JSON object.
+ @return a JSON object.
+ */
++ (id)deserialiseJSONString:(NSString*)jsonString;
 
 @end

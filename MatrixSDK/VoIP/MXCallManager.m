@@ -16,24 +16,28 @@
 
 #import "MXCallManager.h"
 
+#import "MXCall.h"
+#import "MXCallKitAdapter.h"
+#import "MXCallStack.h"
+#import "MXJSONModels.h"
+#import "MXRoom.h"
 #import "MXSession.h"
-
 #import "MXTools.h"
 
 #pragma mark - Constants definitions
-NSString *const kMXCallManagerNewCall           = @"kMXCallManagerNewCall";
-NSString *const kMXCallManagerConferenceStarted = @"kMXCallManagerConferenceStarted";
-NSString *const kMXCallManagerConferenceFinished= @"kMXCallManagerConferenceFinished";
+NSString *const kMXCallManagerNewCall            = @"kMXCallManagerNewCall";
+NSString *const kMXCallManagerConferenceStarted  = @"kMXCallManagerConferenceStarted";
+NSString *const kMXCallManagerConferenceFinished = @"kMXCallManagerConferenceFinished";
 
 // Use Google STUN server as fallback
-NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:19302";
+static NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:19302";
 
 @interface MXCallManager ()
 {
     /**
      Calls being handled.
      */
-    NSMutableArray *calls;
+    NSMutableArray<MXCall *> *calls;
 
     /**
      Listener to Matrix call-related events.
@@ -44,6 +48,11 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
      Timer to periodically refresh the TURN server config.
      */
     NSTimer *refreshTURNServerTimer;
+    
+    /**
+     Observer for changes of MXSession's state
+     */
+    id sessionStateObserver;
 }
 @end
 
@@ -61,7 +70,7 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
         _inviteLifetime = 30000;
 
         _callStack = callstack;
-
+        
         // Listen to call events
         callEventsListener = [mxSession listenToEventsOfTypes:@[
                                                                 kMXEventTypeStringCallInvite,
@@ -96,9 +105,20 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
             }
         }];
 
+        // Listen to call state changes
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(handleCallStateDidChangeNotification:)
+                                                     name:kMXCallStateDidChange
+                                                   object:nil];
+        
         [self refreshTURNServer];
     }
     return self;
+}
+
+- (void)dealloc
+{
+    [self unregisterFromNotifications];
 }
 
 - (void)close
@@ -117,6 +137,9 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     // Do not refresh TURN servers config anymore
     [refreshTURNServerTimer invalidate];
     refreshTURNServerTimer = nil;
+    
+    // Unregister from any possible notifications
+    [self unregisterFromNotifications];
 }
 
 - (MXCall *)callWithCallId:(NSString *)callId
@@ -147,10 +170,39 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     return theCall;
 }
 
-- (void)placeCallInRoom:(NSString*)roomId withVideo:(BOOL)video
+- (void)placeCallInRoom:(NSString *)roomId withVideo:(BOOL)video
                 success:(void (^)(MXCall *call))success
-                failure:(void (^)(NSError *error))failure
+                failure:(void (^)(NSError * _Nullable error))failure
 {
+    // If consumers of our API decide to use SiriKit or CallKit, they will face with application:continueUserActivity:restorationHandler:
+    // and since the state of MXSession can be different from MXSessionStateRunning for the moment when this method will be executing
+    // we must track session's state to become MXSessionStateRunning for performing outgoing call
+    if (_mxSession.state != MXSessionStateRunning)
+    {
+        __weak typeof(self) weakSelf = self;
+        __weak NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        sessionStateObserver = [center addObserverForName:kMXSessionStateDidChangeNotification
+                                                   object:_mxSession
+                                                    queue:[NSOperationQueue mainQueue]
+                                               usingBlock:^(NSNotification * _Nonnull note) {
+                                                   __strong typeof(weakSelf) strongSelf = weakSelf;
+                                                   if (!strongSelf)
+                                                       return;
+                                                   
+                                                   if (strongSelf.mxSession.state == MXSessionStateRunning)
+                                                   {
+                                                       [strongSelf placeCallInRoom:roomId
+                                                                         withVideo:video
+                                                                           success:success
+                                                                           failure:failure];
+                                                       
+                                                       [center removeObserver:strongSelf->sessionStateObserver];
+                                                       strongSelf->sessionStateObserver = nil;
+                                                   }
+                                               }];
+        return;
+    }
+    
     MXRoom *room = [_mxSession roomWithRoomId:roomId];
 
     if (room && 1 < room.state.joinedMembers.count)
@@ -234,44 +286,46 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
 #pragma mark - Private methods
 - (void)refreshTURNServer
 {
+    __weak typeof(self) weakSelf = self;
     [_mxSession.matrixRestClient turnServer:^(MXTurnServerResponse *turnServerResponse) {
-
-        // Check this MXCallManager is still alive
-        if (calls)
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf)
         {
             NSLog(@"[MXCallManager] refreshTURNServer: TTL:%tu URIs: %@", turnServerResponse.ttl, turnServerResponse.uris);
 
             if (turnServerResponse.uris)
             {
-                _turnServers = turnServerResponse;
+                strongSelf->_turnServers = turnServerResponse;
 
                 // Re-new when we're about to reach the TTL
-                refreshTURNServerTimer = [[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:turnServerResponse.ttl * 0.9]
-                                                                  interval:0
-                                                                    target:self
-                                                                  selector:@selector(refreshTURNServer)
-                                                                  userInfo:nil
-                                                                   repeats:NO];
-                [[NSRunLoop mainRunLoop] addTimer:refreshTURNServerTimer forMode:NSDefaultRunLoopMode];
+                strongSelf->refreshTURNServerTimer = [[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:turnServerResponse.ttl * 0.9]
+                                                                              interval:0
+                                                                                target:strongSelf
+                                                                              selector:@selector(refreshTURNServer)
+                                                                              userInfo:nil
+                                                                               repeats:NO];
+                [[NSRunLoop mainRunLoop] addTimer:strongSelf->refreshTURNServerTimer forMode:NSDefaultRunLoopMode];
             }
             else
             {
-                NSLog(@"No TURN server: using fallback STUN server: %@", _fallbackSTUNServer);
-                _turnServers = nil;
+                NSLog(@"No TURN server: using fallback STUN server: %@", strongSelf->_fallbackSTUNServer);
+                strongSelf->_turnServers = nil;
             }
         }
 
     } failure:^(NSError *error) {
         NSLog(@"[MXCallManager] refreshTURNServer: Failed to get TURN URIs.\n");
-        if (calls)
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf)
         {
             NSLog(@"Retry in 60s");
-            refreshTURNServerTimer = [NSTimer timerWithTimeInterval:60 target:self selector:@selector(refreshTURNServer) userInfo:nil repeats:NO];
+            strongSelf->refreshTURNServerTimer = [NSTimer timerWithTimeInterval:60 target:strongSelf selector:@selector(refreshTURNServer) userInfo:nil repeats:NO];
+            [[NSRunLoop mainRunLoop] addTimer:strongSelf->refreshTURNServerTimer forMode:NSDefaultRunLoopMode];
         }
     }];
 }
 
-- (void)handleCallInvite:(MXEvent*)event
+- (void)handleCallInvite:(MXEvent *)event
 {
     MXCallInviteEventContent *content = [MXCallInviteEventContent modelFromJSON:event.content];
 
@@ -279,10 +333,10 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     if (event.age < content.lifetime)
     {
         // If it is an invite from the peer, we need to create the MXCall
-        if (NO == [event.sender isEqualToString:_mxSession.myUser.userId])
+        if (![event.sender isEqualToString:_mxSession.myUser.userId])
         {
             MXCall *call = [self callWithCallId:content.callId];
-            if (nil == call)
+            if (!call)
             {
                 call = [[MXCall alloc] initWithRoomId:event.roomId andCallManager:self];
                 if (call)
@@ -303,7 +357,7 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     }
 }
 
-- (void)notifyCallInvite:(NSString*)callId
+- (void)notifyCallInvite:(NSString *)callId
 {
     MXCall *call = [self callWithCallId:callId];
 
@@ -311,19 +365,15 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     {
         // If the app is resuming, wait for the complete end of the session resume in order
         // to check if the invite is still valid
-        if (_mxSession.state != MXSessionStateRunning)
+        if (_mxSession.state == MXSessionStateSyncInProgress || _mxSession.state == MXSessionStateBackgroundSyncInProgress)
         {
             // The dispatch  on the main thread should be enough.
             // It means that the sync response that contained the invite (and possibly its end
             // of validity) has been fully parsed.
             __weak typeof(self) weakSelf = self;
             dispatch_async(dispatch_get_main_queue(), ^{
-
-                __strong __typeof(weakSelf)strongSelf = weakSelf;
-                if (strongSelf)
-                {
-                    [strongSelf notifyCallInvite:callId];
-                }
+                __strong __typeof(weakSelf) strongSelf = weakSelf;
+                [strongSelf notifyCallInvite:callId];
             });
         }
         else if (call.state < MXCallStateConnected)
@@ -334,7 +384,7 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     }
 }
 
-- (void)handleCallAnswer:(MXEvent*)event
+- (void)handleCallAnswer:(MXEvent *)event
 {
     MXCallAnswerEventContent *content = [MXCallAnswerEventContent modelFromJSON:event.content];
 
@@ -345,7 +395,7 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     }
 }
 
-- (void)handleCallHangup:(MXEvent*)event
+- (void)handleCallHangup:(MXEvent *)event
 {
     MXCallHangupEventContent *content = [MXCallHangupEventContent modelFromJSON:event.content];
 
@@ -360,7 +410,7 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     [calls removeObject:call];
 }
 
-- (void)handleCallCandidates:(MXEvent*)event
+- (void)handleCallCandidates:(MXEvent *)event
 {
     MXCallCandidatesEventContent *content = [MXCallCandidatesEventContent modelFromJSON:event.content];
 
@@ -369,6 +419,48 @@ NSString *const kMXCallManagerFallbackSTUNServer = @"stun:stun.l.google.com:1930
     if (call)
     {
         [call handleCallEvent:event];
+    }
+}
+
+- (void)handleCallStateDidChangeNotification:(NSNotification *)notification
+{
+#if TARGET_OS_IPHONE
+    MXCall *call = notification.object;
+    
+    switch (call.state) {
+        case MXCallStateCreateOffer:
+            [self.callKitAdapter startCall:call];
+            break;
+        case MXCallStateRinging:
+            [self.callKitAdapter reportIncomingCall:call];
+            break;
+        case MXCallStateConnecting:
+            [self.callKitAdapter reportCall:call startedConnectingAtDate:nil];
+            break;
+        case MXCallStateConnected:
+            [self.callKitAdapter reportCall:call connectedAtDate:nil];
+            break;
+        case MXCallStateEnded:
+            [self.callKitAdapter endCall:call];
+            break;
+        default:
+            break;
+    }
+#endif
+}
+
+- (void)unregisterFromNotifications
+{
+    NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
+    
+    // Do not handle any call state change notifications
+    [notificationCenter removeObserver:self name:kMXCallStateDidChange object:nil];
+    
+    // Don't track MXSession's state
+    if (sessionStateObserver)
+    {
+        [notificationCenter removeObserver:sessionStateObserver name:kMXSessionStateDidChangeNotification object:_mxSession];
+        sessionStateObserver = nil;
     }
 }
 
@@ -399,7 +491,7 @@ NSString *const kMXCallManagerConferenceUserDomain  = @"matrix.org";
     }
 }
 
-+ (NSString*)conferenceUserIdForRoom:(NSString*)roomId
++ (NSString *)conferenceUserIdForRoom:(NSString *)roomId
 {
     // Apply the same algo as other matrix clients
     NSString *base64RoomId = [[roomId dataUsingEncoding:NSUTF8StringEncoding] base64EncodedStringWithOptions:0];
@@ -462,10 +554,11 @@ NSString *const kMXCallManagerConferenceUserDomain  = @"matrix.org";
  It is mandatory before starting the conference call.
 
  @param room the room.
- @return the conference user id.
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
  */
-- (void)inviteConferenceUserToRoom:(MXRoom*)room
-                           success:(void (^)())success
+- (void)inviteConferenceUserToRoom:(MXRoom *)room
+                           success:(void (^)(void))success
                            failure:(void (^)(NSError *error))failure
 {
     NSString *conferenceUserId = [MXCallManager conferenceUserIdForRoom:room.roomId];
@@ -485,7 +578,9 @@ NSString *const kMXCallManagerConferenceUserDomain  = @"matrix.org";
  Get the room with the conference user dedicated for the passed room.
 
  @param roomId the room id.
- @return the private room with conference user.
+ @param success A block object called when the operation succeeds. 
+                It returns the private room with conference user.
+ @param failure A block object called when the operation fails.
  */
 - (void)conferenceUserRoomForRoom:(NSString*)roomId
                           success:(void (^)(MXRoom *conferenceUserRoom))success

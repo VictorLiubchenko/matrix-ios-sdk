@@ -15,29 +15,33 @@
  */
 
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
 
-#import "MXEvent.h"
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <Cocoa/Cocoa.h>
+#endif
+
 #import "MXCallStackCall.h"
 
-@class MXCallManager;
-@class MXRoom;
+NS_ASSUME_NONNULL_BEGIN
 
+@class MXCallManager;
+@class MXEvent;
+@class MXRoom;
 
 /**
  Call states.
  */
-typedef enum : NSUInteger
+typedef NS_ENUM(NSUInteger, MXCallState)
 {
     MXCallStateFledgling,
     MXCallStateWaitLocalMedia,
 
-    // MXCallStateWaitLocalMedia
     MXCallStateCreateOffer,
     MXCallStateInviteSent,
 
     MXCallStateRinging,
-    // MXCallStateWaitLocalMedia
     MXCallStateCreateAnswer,
     MXCallStateConnecting,
 
@@ -46,7 +50,21 @@ typedef enum : NSUInteger
 
     MXCallStateInviteExpired,
     MXCallStateAnsweredElseWhere
-} MXCallState;
+};
+
+/**
+ Call end reasons.
+ */
+typedef NS_ENUM(NSInteger, MXCallEndReason)
+{
+    MXCallEndReasonUnknown,
+    MXCallEndReasonHangup, // The call was ended by the local side
+    MXCallEndReasonHangupElsewhere, // The call was ended on another device
+    MXCallEndReasonRemoteHangup, // The call was ended by the remote side
+    MXCallEndReasonBusy, // The call was declined by the remote side before it was being established. Only for outgoing calls
+    MXCallEndReasonMissed, // The call wasn't established in a given period of time
+    MXCallEndReasonAnsweredElseWhere // The call was answered on another device
+};
 
 /**
  Posted when a `MXCall` object has changed its state.
@@ -61,6 +79,8 @@ extern NSString *const kMXCallStateDidChange;
  */
 @interface MXCall : NSObject <MXCallStackCallDelegate>
 
+- (instancetype)init NS_UNAVAILABLE;
+
 /**
  Create a `MXCall` instance in order to place a call.
 
@@ -68,7 +88,7 @@ extern NSString *const kMXCallStateDidChange;
  @param callManager the manager of all MXCall objects.
  @return the newly created MXCall instance.
  */
-- (instancetype)initWithRoomId:(NSString*)roomId andCallManager:(MXCallManager*)callManager;
+- (instancetype)initWithRoomId:(NSString *)roomId andCallManager:(MXCallManager *)callManager;
 
 /**
  Create a `MXCall` instance in order to place a call using a conference server.
@@ -78,14 +98,14 @@ extern NSString *const kMXCallStateDidChange;
  @param callManager the manager of all MXCall objects.
  @return the newly created MXCall instance.
  */
-- (instancetype)initWithRoomId:(NSString*)roomId callSignalingRoomId:(NSString*)callSignalingRoomId andCallManager:(MXCallManager*)callManager;
+- (instancetype)initWithRoomId:(NSString *)roomId callSignalingRoomId:(NSString *)callSignalingRoomId andCallManager:(MXCallManager *)callManager NS_DESIGNATED_INITIALIZER;
 
 /**
  Handle call event.
 
  @param event the call event coming from the event stream.
  */
-- (void)handleCallEvent:(MXEvent*)event;
+- (void)handleCallEvent:(MXEvent *)event;
 
 
 #pragma mark - Controls
@@ -124,6 +144,11 @@ extern NSString *const kMXCallStateDidChange;
 @property (readonly, nonatomic) NSString *callId;
 
 /**
+ The UUID of the call.
+ */
+@property (readonly, nonatomic) NSUUID *callUUID;
+
+/**
  Flag indicating this is a conference call;
  */
 @property (readonly, nonatomic) BOOL isConferenceCall;
@@ -139,9 +164,19 @@ extern NSString *const kMXCallStateDidChange;
 @property (readonly, nonatomic) BOOL isVideoCall;
 
 /**
+ Indicates whether the call was successfully established by the time this property is accessed.
+ */
+@property (readonly, nonatomic, getter=isEstablished) BOOL established;
+
+/**
  The call state.
  */
 @property (readonly, nonatomic) MXCallState state;
+
+/**
+ The call end reason.
+ */
+@property (readonly, nonatomic) MXCallEndReason endReason;
 
 /**
  The user id of the caller.
@@ -149,20 +184,35 @@ extern NSString *const kMXCallStateDidChange;
 @property (readonly, nonatomic) NSString *callerId;
 
 /**
+ The user id of the callee. Nil for conference calls
+ */
+@property (readonly, nullable, nonatomic) NSString *calleeId;
+
+/**
  The UIView that receives frames from the user's camera.
  */
-@property (nonatomic) UIView *selfVideoView;
+#if TARGET_OS_IPHONE
+@property (nonatomic, nullable) UIView *selfVideoView;
+#elif TARGET_OS_OSX
+@property (nonatomic, nullable) NSView *selfVideoView;
+#endif
 
 /**
  The UIView that receives frames from the remote camera.
  */
-@property (nonatomic) UIView *remoteVideoView;
+#if TARGET_OS_IPHONE
+@property (nonatomic, nullable) UIView *remoteVideoView;
+#elif TARGET_OS_OSX
+@property (nonatomic, nullable) NSView *remoteVideoView;
+#endif
 
 /**
  The camera orientation. It is used to display the video in the right direction
  on the other peer device.
  */
+#if TARGET_OS_IPHONE
 @property (nonatomic) UIDeviceOrientation selfOrientation;
+#endif
 
 /**
  Mute state of the audio.
@@ -194,7 +244,7 @@ extern NSString *const kMXCallStateDidChange;
 /**
  The delegate.
  */
-@property (nonatomic) id<MXCallDelegate> delegate;
+@property (nonatomic, weak) id<MXCallDelegate> delegate;
 
 @end
 
@@ -213,7 +263,7 @@ extern NSString *const kMXCallStateDidChange;
               The `event` paramater is this event.
               If it is our user, `event` is nil.
  */
-- (void)call:(MXCall *)call stateDidChange:(MXCallState)state reason:(MXEvent*)event;
+- (void)call:(MXCall *)call stateDidChange:(MXCallState)state reason:(nullable MXEvent *)event;
 
 @optional
 
@@ -224,6 +274,8 @@ extern NSString *const kMXCallStateDidChange;
  @param call the instance that changes.
  @param error the error.
  */
-- (void)call:(MXCall *)call didEncounterError:(NSError*)error;
+- (void)call:(MXCall *)call didEncounterError:(NSError *)error;
 
 @end
+
+NS_ASSUME_NONNULL_END

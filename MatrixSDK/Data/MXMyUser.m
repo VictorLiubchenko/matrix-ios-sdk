@@ -28,18 +28,18 @@
     self = [super initWithUserId:userId];
     if (self)
     {
-        self.displayname = [displayname copy];
-        self.avatarUrl = [avatarUrl copy];
+        _displayname = [displayname copy];
+        _avatarUrl = [avatarUrl copy];
     }
     return self;
 }
 
-- (void)setDisplayName:(NSString *)displayname success:(void (^)())success failure:(void (^)(NSError *))failure
+- (void)setDisplayName:(NSString *)displayname success:(void (^)(void))success failure:(void (^)(NSError *))failure
 {
     [_mxSession.matrixRestClient setDisplayName:displayname success:^{
 
         // Update the information right now
-        self.displayname = [displayname copy];
+        _displayname = [displayname copy];
 
         [_mxSession.store storeUser:self];
         if ([_mxSession.store respondsToSelector:@selector(commit)])
@@ -60,12 +60,12 @@
     }];
 }
 
-- (void)setAvatarUrl:(NSString *)avatarUrl success:(void (^)())success failure:(void (^)(NSError *))failure
+- (void)setAvatarUrl:(NSString *)avatarUrl success:(void (^)(void))success failure:(void (^)(NSError *))failure
 {
     [_mxSession.matrixRestClient setAvatarUrl:avatarUrl success:^{
 
         // Update the information right now
-        self.avatarUrl = [avatarUrl copy];
+        _avatarUrl = [avatarUrl copy];
 
         [_mxSession.store storeUser:self];
         if ([_mxSession.store respondsToSelector:@selector(commit)])
@@ -86,7 +86,7 @@
     }];
 }
 
-- (void)setPresence:(MXPresence)presence andStatusMessage:(NSString *)statusMessage success:(void (^)())success failure:(void (^)(NSError *))failure
+- (void)setPresence:(MXPresence)presence andStatusMessage:(NSString *)statusMessage success:(void (^)(void))success failure:(void (^)(NSError *))failure
 {
     [_mxSession.matrixRestClient setPresence:presence andStatusMessage:statusMessage success:^{
 
@@ -111,32 +111,6 @@
             failure(error);
         }
     }];
-}
-
-- (void)setDisplayname:(NSString *)displayname
-{
-    if (_mxSession.store.isPermanent && _displayname != displayname && NO == [_displayname isEqualToString:displayname])
-    {
-        [_mxSession.store storeUser:self];
-        if ([_mxSession.store respondsToSelector:@selector(commit)])
-        {
-            [_mxSession.store commit];
-        }
-    }
-    _displayname = displayname;
-}
-
--(void)setAvatarUrl:(NSString *)avatarUrl
-{
-    if (_mxSession.store.isPermanent && _avatarUrl != avatarUrl && NO == [_avatarUrl isEqualToString:avatarUrl])
-    {
-        [_mxSession.store storeUser:self];
-        if ([_mxSession.store respondsToSelector:@selector(commit)])
-        {
-            [_mxSession.store commit];
-        }
-    }
-    _avatarUrl = avatarUrl;
 }
 
 @end

@@ -1,5 +1,6 @@
 /*
  Copyright 2016 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
  
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -16,6 +17,13 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import "MXMediaLoader.h"
+
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <Cocoa/Cocoa.h>
+#endif
+
 
 /**
  The predefined folder for avatar thumbnail.
@@ -36,10 +44,10 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
 #pragma mark - File handling
 
 /**
- Write data into the provided file path
+ Write data into the provided file path.
  
- @param mediaData
- @param filePath
+ @param mediaData the data to write.
+ @param filePath the file to write data to.
  @return YES on sucess.
  */
 + (BOOL)writeMediaData:(NSData *)mediaData toFilePath:(NSString*)filePath;
@@ -53,7 +61,11 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  @param filePath picture file path.
  @return Image (if any).
  */
+#if TARGET_OS_IPHONE
 + (UIImage*)loadThroughCacheWithFilePath:(NSString*)filePath;
+#elif TARGET_OS_OSX
++ (NSImage*)loadThroughCacheWithFilePath:(NSString*)filePath;
+#endif
 
 /**
  Load an image from the in memory cache, or return nil if the image
@@ -62,13 +74,22 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  @param filePath picture file path.
  @return Image (if any).
  */
+#if TARGET_OS_IPHONE
 + (UIImage*)getFromMemoryCacheWithFilePath:(NSString*)filePath;
+#elif TARGET_OS_OSX
++ (NSImage*)getFromMemoryCacheWithFilePath:(NSString*)filePath;
+#endif
 
 /**
  * Save an image to in-memory cache, evicting other images
  * if necessary
  */
+
+#if TARGET_OS_IPHONE
 + (void)cacheImage:(UIImage *)image withCachePath:(NSString *)cachePath;
+#elif TARGET_OS_OSX
++ (void)cacheImage:(NSImage *)image withCachePath:(NSString *)cachePath;
+#endif
 
 /**
  Load a picture from the local storage
@@ -76,7 +97,11 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  @param filePath picture file path.
  @return Image (if any).
  */
+#if TARGET_OS_IPHONE
 + (UIImage*)loadPictureFromFilePath:(NSString*)filePath; 
+#elif TARGET_OS_OSX
++ (NSImage*)loadPictureFromFilePath:(NSString*)filePath;
+#endif
 
 /**
  Save an image to user's photos library
@@ -86,8 +111,9 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  references the image in the file system or in the AssetsLibrary framework.
  @param failure A block object called when the operation fails.
  */
+#if TARGET_OS_IPHONE
 + (void)saveImageToPhotosLibrary:(UIImage*)image success:(void (^)(NSURL *imageURL))success failure:(void (^)(NSError *error))failure;
-
+#endif
 /**
  Save a media to user's photos library
  
@@ -97,14 +123,16 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  references the media in the file system or in the AssetsLibrary framework.
  @param failure A block object called when the operation fails.
  */
+#if TARGET_OS_IPHONE
 + (void)saveMediaToPhotosLibrary:(NSURL*)fileURL isImage:(BOOL)isImage success:(void (^)(NSURL *imageURL))success failure:(void (^)(NSError *error))failure;
+#endif
 
 #pragma mark - Download
 
 /**
  Download data from the provided URL.
  
- @param url remote media url.
+ @param mediaURL the remote media url.
  @param filePath output file in which downloaded media must be saved (may be nil).
  @param success block called on success
  @param failure block called on failure
@@ -112,13 +140,13 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  */
 + (MXMediaLoader*)downloadMediaFromURL:(NSString *)mediaURL
                       andSaveAtFilePath:(NSString *)filePath
-                                success:(void (^)())success
+                                success:(void (^)(void))success
                                 failure:(void (^)(NSError *error))failure;
 
 /**
  Download data from the provided URL.
  
- @param url remote media url.
+ @param mediaURL the remote media url.
  @param filePath output file in which downloaded media must be saved (may be nil).
  @return a media loader in order to let the user cancel this action.
  */
@@ -165,7 +193,7 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
 /**
  Check whether an upload is already running with this id.
  
- @param uploadId
+ @param uploadId the id of the upload to fectch.
  @return mediaLoader (if any).
  */
 + (MXMediaLoader*)existingUploaderWithId:(NSString*)uploadId;
@@ -209,6 +237,13 @@ extern NSString *const kMXMediaManagerDefaultCacheFolder;
  Return cache root path
  */
 + (NSString*)getCachePath;
+
+/**
+ Return the current media cache version.
+ This value depends on the version defined at the application level (see [MXSDKOptions mediaCacheAppVersion]),
+ and the one defined at SDK level.
+ */
++ (NSString*)getCacheVersionString;
 
 /**
  Cache size management (values are in bytes)

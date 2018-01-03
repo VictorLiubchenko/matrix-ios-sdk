@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -17,6 +18,7 @@
 #import "MXJSONModels.h"
 
 #import "MXEvent.h"
+#import "MXUser.h"
 #import "MXTools.h"
 #import "MXUsersDevicesMap.h"
 #import "MXDeviceInfo.h"
@@ -35,7 +37,7 @@
         MXJSONModelSetString(publicRoom.name , sanitisedJSONDictionary[@"name"]);
         MXJSONModelSetArray(publicRoom.aliases , sanitisedJSONDictionary[@"aliases"]);
         MXJSONModelSetString(publicRoom.topic , sanitisedJSONDictionary[@"topic"]);
-        MXJSONModelSetUInteger(publicRoom.numJoinedMembers, sanitisedJSONDictionary[@"num_joined_members"]);
+        MXJSONModelSetInteger(publicRoom.numJoinedMembers, sanitisedJSONDictionary[@"num_joined_members"]);
         MXJSONModelSetBoolean(publicRoom.worldReadable, sanitisedJSONDictionary[@"world_readable"]);
         MXJSONModelSetBoolean(publicRoom.guestCanJoin, sanitisedJSONDictionary[@"guest_can_join"]);
         MXJSONModelSetString(publicRoom.avatarUrl , sanitisedJSONDictionary[@"avatar_url"]);
@@ -71,6 +73,85 @@
 @end
 
 
+@implementation MXPublicRoomsResponse
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXPublicRoomsResponse *publicRoomsResponse = [[MXPublicRoomsResponse alloc] init];
+    if (publicRoomsResponse)
+    {
+        MXJSONModelSetMXJSONModelArray(publicRoomsResponse.chunk, MXPublicRoom, JSONDictionary[@"chunk"]);
+        MXJSONModelSetString(publicRoomsResponse.nextBatch , JSONDictionary[@"next_batch"]);
+        MXJSONModelSetUInteger(publicRoomsResponse.totalRoomCountEstimate , JSONDictionary[@"total_room_count_estimate"]);
+    }
+
+    return publicRoomsResponse;
+}
+@end
+
+
+@implementation MXThirdPartyProtocolInstance
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXThirdPartyProtocolInstance *thirdpartyProtocolInstance = [[MXThirdPartyProtocolInstance alloc] init];
+    if (thirdpartyProtocolInstance)
+    {
+        MXJSONModelSetString(thirdpartyProtocolInstance.networkId, JSONDictionary[@"network_id"]);
+        MXJSONModelSetDictionary(thirdpartyProtocolInstance.fields, JSONDictionary[@"fields"]);
+        MXJSONModelSetString(thirdpartyProtocolInstance.instanceId, JSONDictionary[@"instance_id"]);
+        MXJSONModelSetString(thirdpartyProtocolInstance.desc, JSONDictionary[@"desc"]);
+        MXJSONModelSetString(thirdpartyProtocolInstance.botUserId, JSONDictionary[@"bot_user_id"]);
+        MXJSONModelSetString(thirdpartyProtocolInstance.icon, JSONDictionary[@"icon"]);
+    }
+
+    return thirdpartyProtocolInstance;
+}
+
+@end
+
+
+@implementation MXThirdPartyProtocol
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXThirdPartyProtocol *thirdpartyProtocol = [[MXThirdPartyProtocol alloc] init];
+    if (thirdpartyProtocol)
+    {
+        MXJSONModelSetArray(thirdpartyProtocol.userFields, JSONDictionary[@"user_fields"]);
+        MXJSONModelSetArray(thirdpartyProtocol.locationFields, JSONDictionary[@"location_fields"]);
+        MXJSONModelSetDictionary(thirdpartyProtocol.fieldTypes, JSONDictionary[@"field_types"]);
+        MXJSONModelSetMXJSONModelArray(thirdpartyProtocol.instances, MXThirdPartyProtocolInstance, JSONDictionary[@"instances"])
+    }
+
+    return thirdpartyProtocol;
+}
+
+@end
+
+
+@implementation MXThirdpartyProtocolsResponse
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXThirdpartyProtocolsResponse *thirdpartyProtocolsResponse = [[MXThirdpartyProtocolsResponse alloc] init];
+    if (thirdpartyProtocolsResponse)
+    {
+        NSMutableDictionary *protocols = [NSMutableDictionary dictionary];
+        for (NSString *protocolName in JSONDictionary)
+        {
+            MXJSONModelSetMXJSONModel(protocols[protocolName], MXThirdPartyProtocol, JSONDictionary[protocolName]);
+        }
+
+        thirdpartyProtocolsResponse.protocols = protocols;
+    }
+
+    return thirdpartyProtocolsResponse;
+}
+
+@end
+
+
 NSString *const kMXLoginFlowTypePassword = @"m.login.password";
 NSString *const kMXLoginFlowTypeRecaptcha = @"m.login.recaptcha";
 NSString *const kMXLoginFlowTypeOAuth2 = @"m.login.oauth2";
@@ -78,6 +159,11 @@ NSString *const kMXLoginFlowTypeEmailIdentity = @"m.login.email.identity";
 NSString *const kMXLoginFlowTypeToken = @"m.login.token";
 NSString *const kMXLoginFlowTypeDummy = @"m.login.dummy";
 NSString *const kMXLoginFlowTypeEmailCode = @"m.login.email.code";
+NSString *const kMXLoginFlowTypeMSISDN = @"m.login.msisdn";
+
+NSString *const kMXLoginIdentifierTypeUser = @"m.id.user";
+NSString *const kMXLoginIdentifierTypeThirdParty = @"m.id.thirdparty";
+NSString *const kMXLoginIdentifierTypePhone = @"m.id.phone";
 
 @implementation MXLoginFlow
 
@@ -140,6 +226,11 @@ NSString *const kMXLoginFlowTypeEmailCode = @"m.login.email.code";
         _accessToken = [accessToken copy];
     }
     return self;
+}
+
+- (NSString *)homeServerName
+{
+    return [NSURL URLWithString:_homeServer].host;
 }
 
 @end
@@ -276,46 +367,56 @@ NSString *const kMXRoomTagLowPriority = @"m.lowpriority";
 + (NSDictionary<NSString *,MXRoomTag *> *)roomTagsWithTagEvent:(MXEvent *)event
 {
     NSMutableDictionary *tags = [NSMutableDictionary dictionary];
-    for (NSString *tagName in event.content[@"tags"])
+
+    NSDictionary *tagsContent;
+    MXJSONModelSetDictionary(tagsContent, event.content[@"tags"]);
+
+    for (NSString *tagName in tagsContent)
     {
-        NSString *order = event.content[@"tags"][tagName][@"order"];
+        NSDictionary *tagDict;
+        MXJSONModelSetDictionary(tagDict, tagsContent[tagName]);
 
-        // Be robust if the server sends an integer tag order
-        // Do some cleaning if the order is a number (and do nothing if the order is a string)
-        if ([order isKindOfClass:NSNumber.class])
+        if (tagDict)
         {
-            NSLog(@"[MXRoomTag] Warning: the room tag order is an number value not a string in this event: %@", event);
+            NSString *order = tagDict[@"order"];
 
-            NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
-            [formatter setMaximumFractionDigits:16];
-            [formatter setMinimumFractionDigits:0];
-            [formatter setDecimalSeparator:@"."];
-            [formatter setGroupingSeparator:@""];
-
-            order = [formatter stringFromNumber:event.content[@"tags"][tagName][@"order"]];
-
-            if (order)
+            // Be robust if the server sends an integer tag order
+            // Do some cleaning if the order is a number (and do nothing if the order is a string)
+            if ([order isKindOfClass:NSNumber.class])
             {
-                NSNumber *value = [formatter numberFromString:order];
-                if (!value)
-                {
-                    // Manage numbers with ',' decimal separator
-                    [formatter setDecimalSeparator:@","];
-                    value = [formatter numberFromString:order];
-                    [formatter setDecimalSeparator:@"."];
-                }
+                NSLog(@"[MXRoomTag] Warning: the room tag order is an number value not a string in this event: %@", event);
 
-                if (value)
+                NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
+                [formatter setMaximumFractionDigits:16];
+                [formatter setMinimumFractionDigits:0];
+                [formatter setDecimalSeparator:@"."];
+                [formatter setGroupingSeparator:@""];
+
+                order = [formatter stringFromNumber:tagDict[@"order"]];
+
+                if (order)
                 {
-                    // remove trailing 0
-                    // in some cases, the order is 0.00000 ("%f" formatter");
-                    // with this method, it becomes "0".
-                    order = [formatter stringFromNumber:value];
+                    NSNumber *value = [formatter numberFromString:order];
+                    if (!value)
+                    {
+                        // Manage numbers with ',' decimal separator
+                        [formatter setDecimalSeparator:@","];
+                        value = [formatter numberFromString:order];
+                        [formatter setDecimalSeparator:@"."];
+                    }
+
+                    if (value)
+                    {
+                        // remove trailing 0
+                        // in some cases, the order is 0.00000 ("%f" formatter");
+                        // with this method, it becomes "0".
+                        order = [formatter stringFromNumber:value];
+                    }
                 }
             }
+            
+            tags[tagName] = [[MXRoomTag alloc] initWithName:tagName andOrder:order];
         }
-
-        tags[tagName] = [[MXRoomTag alloc] initWithName:tagName andOrder:order];
     }
     return tags;
 }
@@ -419,15 +520,50 @@ NSString *const kMXPresenceOffline = @"offline";
 @end
 
 
+@interface MXOpenIdToken ()
+
+// Shorcut to retrieve the original JSON as `MXOpenIdToken` data is often directly injected in
+// another request
+@property (nonatomic) NSDictionary *json;
+
+@end
+
+@implementation MXOpenIdToken
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXOpenIdToken *openIdToken = [[MXOpenIdToken alloc] init];
+    if (openIdToken)
+    {
+        MXJSONModelSetString(openIdToken.tokenType, JSONDictionary[@"token_type"]);
+        MXJSONModelSetString(openIdToken.matrixServerName, JSONDictionary[@"matrix_server_name"]);
+        MXJSONModelSetString(openIdToken.accessToken, JSONDictionary[@"access_token"]);
+        MXJSONModelSetUInt64(openIdToken.expiresIn, JSONDictionary[@"expires_in"]);
+
+        MXJSONModelSetDictionary(openIdToken.json, JSONDictionary);
+    }
+    return openIdToken;
+}
+
+- (NSDictionary *)JSONDictionary
+{
+    return _json;
+}
+
+@end
+
+
 NSString *const kMXPushRuleActionStringNotify       = @"notify";
 NSString *const kMXPushRuleActionStringDontNotify   = @"dont_notify";
 NSString *const kMXPushRuleActionStringCoalesce     = @"coalesce";
 NSString *const kMXPushRuleActionStringSetTweak     = @"set_tweak";
 
-NSString *const kMXPushRuleConditionStringEventMatch            = @"event_match";
-NSString *const kMXPushRuleConditionStringProfileTag            = @"profile_tag";
-NSString *const kMXPushRuleConditionStringContainsDisplayName   = @"contains_display_name";
-NSString *const kMXPushRuleConditionStringRoomMemberCount       = @"room_member_count";
+NSString *const kMXPushRuleConditionStringEventMatch                    = @"event_match";
+NSString *const kMXPushRuleConditionStringProfileTag                    = @"profile_tag";
+NSString *const kMXPushRuleConditionStringContainsDisplayName           = @"contains_display_name";
+NSString *const kMXPushRuleConditionStringRoomMemberCount               = @"room_member_count";
+NSString *const kMXPushRuleConditionStringSenderNotificationPermission  = @"sender_notification_permission";
+
 
 @implementation MXPushRule
 
@@ -557,6 +693,10 @@ NSString *const kMXPushRuleConditionStringRoomMemberCount       = @"room_member_
     {
         _kindType = MXPushRuleConditionTypeRoomMemberCount;
     }
+    else if ([_kind isEqualToString:kMXPushRuleConditionStringSenderNotificationPermission])
+    {
+        _kindType = MXPushRuleConditionTypeSenderNotificationPermission;
+    }
     else
     {
         _kindType = MXPushRuleConditionTypeCustom;
@@ -583,6 +723,10 @@ NSString *const kMXPushRuleConditionStringRoomMemberCount       = @"room_member_
 
         case MXPushRuleConditionTypeRoomMemberCount:
             _kind = kMXPushRuleConditionStringRoomMemberCount;
+            break;
+
+        case MXPushRuleConditionTypeSenderNotificationPermission:
+            _kind = kMXPushRuleConditionStringSenderNotificationPermission;
             break;
 
         default:
@@ -835,6 +979,22 @@ NSString *const kMXPushRuleScopeStringDevice = @"device";
 
 @end
 
+@implementation MXUserSearchResponse
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXUserSearchResponse *userSearchResponse = [[MXUserSearchResponse alloc] init];
+    if (userSearchResponse)
+    {
+        MXJSONModelSetBoolean(userSearchResponse.limited, JSONDictionary[@"limited"]);
+        MXJSONModelSetMXJSONModelArray(userSearchResponse.results, MXUser, JSONDictionary[@"results"]);
+    }
+
+    return userSearchResponse;
+}
+
+@end
+
 
 #pragma mark - Server sync
 #pragma mark -
@@ -1010,6 +1170,21 @@ NSString *const kMXPushRuleScopeStringDevice = @"device";
 
 @end
 
+@implementation MXDeviceListResponse
+
++ (id)modelFromJSON:(NSDictionary *)JSONDictionary
+{
+    MXDeviceListResponse *deviceListResponse = [[MXDeviceListResponse alloc] init];
+    if (deviceListResponse)
+    {
+        MXJSONModelSetArray(deviceListResponse.changed, JSONDictionary[@"changed"]);
+        MXJSONModelSetArray(deviceListResponse.left, JSONDictionary[@"left"]);
+    }
+    return deviceListResponse;
+}
+
+@end
+
 @implementation MXRoomsSyncResponse
 
 // Override the default Mantle modelFromJSON method to convert room lists.
@@ -1058,6 +1233,8 @@ NSString *const kMXPushRuleScopeStringDevice = @"device";
         MXJSONModelSetString(syncResponse.nextBatch, JSONDictionary[@"next_batch"]);
         MXJSONModelSetMXJSONModel(syncResponse.presence, MXPresenceSyncResponse, JSONDictionary[@"presence"]);
         MXJSONModelSetMXJSONModel(syncResponse.toDevice, MXToDeviceSyncResponse, JSONDictionary[@"to_device"]);
+        MXJSONModelSetMXJSONModel(syncResponse.deviceLists, MXDeviceListResponse, JSONDictionary[@"device_lists"]);
+        MXJSONModelSetDictionary(syncResponse.deviceOneTimeKeysCount, JSONDictionary[@"device_one_time_keys_count"])
         MXJSONModelSetMXJSONModel(syncResponse.rooms, MXRoomsSyncResponse, JSONDictionary[@"rooms"]);
     }
 

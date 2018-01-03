@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -32,6 +33,7 @@
  Here, we use one of the home servers launched by the ./demo/start.sh script
  */
 NSString *const kMXTestsHomeServerURL = @"http://localhost:8080";
+NSString *const kMXTestsHomeServerHttpsURL = @"https://localhost:8481";
 
 NSString * const kMXTestsAliceDisplayName = @"mxAlice";
 NSString * const kMXTestsAliceAvatarURL = @"mxc://matrix.org/kciiXusgZFKuNLIfLqmmttIQ";
@@ -58,7 +60,7 @@ NSMutableArray *roomsToClean;
     return self;
 }
 
-- (void)getBobCredentials:(void (^)())success
+- (void)getBobCredentials:(void (^)(void))success
 {
     if (self.bobCredentials)
     {
@@ -298,7 +300,7 @@ NSMutableArray *roomsToClean;
 }
 
 
-- (void)for:(MXRestClient *)mxRestClient2 andRoom:(NSString*)roomId sendMessages:(NSUInteger)messagesCount success:(void (^)())success
+- (void)for:(MXRestClient *)mxRestClient2 andRoom:(NSString*)roomId sendMessages:(NSUInteger)messagesCount success:(void (^)(void))success
 {
     NSLog(@"sendMessages :%tu to %@", messagesCount, roomId);
     if (0 == messagesCount)
@@ -320,7 +322,7 @@ NSMutableArray *roomsToClean;
     }
 }
 
-- (void)for:(MXRestClient *)mxRestClient2 createRooms:(NSUInteger)roomsCount withMessages:(NSUInteger)messagesCount success:(void (^)())success
+- (void)for:(MXRestClient *)mxRestClient2 createRooms:(NSUInteger)roomsCount withMessages:(NSUInteger)messagesCount success:(void (^)(void))success
 {
     if (0 == roomsCount)
     {
@@ -420,9 +422,37 @@ NSMutableArray *roomsToClean;
     }];
 }
 
+- (void)doMXSessionTestWithBobAndARoom:(XCTestCase*)testCase andStore:(id<MXStore>)store
+                           readyToTest:(void (^)(MXSession *mxSession, MXRoom *room, XCTestExpectation *expectation))readyToTest
+{
+    [self doMXRestClientTestWithBob:testCase readyToTest:^(MXRestClient *bobRestClient, XCTestExpectation *expectation) {
+        MXSession *mxSession = [[MXSession alloc] initWithMatrixRestClient:bobRestClient];
+
+        [bobRestClient createRoom:@"A room" visibility:nil roomAlias:nil topic:nil success:^(MXCreateRoomResponse *response) {
+
+            [mxSession setStore:store success:^{
+
+                [mxSession start:^{
+
+                    MXRoom *room = [mxSession roomWithRoomId:response.roomId];
+                    readyToTest(mxSession, room, expectation);
+
+                } failure:^(NSError *error) {
+                    NSAssert(NO, @"Cannot set up intial test conditions - error: %@", error);
+                }];
+            } failure:^(NSError *error) {
+                NSAssert(NO, @"Cannot set up intial test conditions - error: %@", error);
+            }];
+
+        } failure:^(NSError *error) {
+            NSAssert(NO, @"Cannot set up intial test conditions - error: %@", error);
+        }];
+    }];
+}
+
 
 #pragma mark - mxAlice
-- (void)getAliceCredentials:(void (^)())success
+- (void)getAliceCredentials:(void (^)(void))success
 {
     if (self.aliceCredentials)
     {
@@ -594,6 +624,100 @@ NSMutableArray *roomsToClean;
 }
 
 
+#pragma mark - HTTPS mxBob
+- (void)getHttpsBobCredentials:(void (^)(void))success
+{
+    [self getHttpsBobCredentials:success onUnrecognizedCertificateBlock:^BOOL(NSData *certificate) {
+        return YES;
+    }];
+}
+
+- (void)getHttpsBobCredentials:(void (^)(void))success onUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock
+{
+    if (self.bobCredentials)
+    {
+        // Credentials are already here, they are ready
+        success();
+    }
+    else
+    {
+        // Use a different Bob each time so that tests are independent
+        NSString *bobUniqueUser = [NSString stringWithFormat:@"%@-%@", MXTESTS_BOB, [[NSUUID UUID] UUIDString]];
+
+        MXRestClient *mxRestClient = [[MXRestClient alloc] initWithHomeServer:kMXTestsHomeServerHttpsURL
+                                            andOnUnrecognizedCertificateBlock:onUnrecognizedCertBlock];
+
+        // First, try register the user
+        [mxRestClient registerWithLoginType:kMXLoginFlowTypeDummy username:bobUniqueUser password:MXTESTS_BOB_PWD success:^(MXCredentials *credentials) {
+
+            _bobCredentials = credentials;
+            success();
+
+        } failure:^(NSError *error) {
+            MXError *mxError = [[MXError alloc] initWithNSError:error];
+            if (mxError && [mxError.errcode isEqualToString:@"M_USER_IN_USE"])
+            {
+                // The user already exists. This error is normal.
+                // Log Bob in to get his keys
+                [mxRestClient loginWithLoginType:kMXLoginFlowTypeDummy username:bobUniqueUser password:MXTESTS_BOB_PWD success:^(MXCredentials *credentials) {
+
+                    _bobCredentials = credentials;
+                    success();
+
+                } failure:^(NSError *error) {
+                    NSAssert(NO, @"Cannot log mxBOB in");
+                }];
+            }
+            else
+            {
+                NSAssert(NO, @"Cannot create mxBOB account. Make sure the homeserver at %@ is running", mxRestClient.homeserver);
+            }
+        }];
+    }
+}
+
+- (void)doHttpsMXRestClientTestWithBob:(XCTestCase*)testCase
+                           readyToTest:(void (^)(MXRestClient *bobRestClient, XCTestExpectation *expectation))readyToTest
+{
+    XCTestExpectation *expectation;
+    if (testCase)
+    {
+        expectation = [testCase expectationWithDescription:@"asyncTest"];
+    }
+
+    [self getHttpsBobCredentials:^{
+
+        MXRestClient *restClient = [[MXRestClient alloc] initWithCredentials:self.bobCredentials
+                                           andOnUnrecognizedCertificateBlock:^BOOL(NSData *certificate) {
+                                               return YES;
+                                           }];
+
+        readyToTest(restClient, expectation);
+    }];
+
+    if (testCase)
+    {
+        [testCase waitForExpectationsWithTimeout:10 handler:nil];
+    }
+}
+
+- (void)doHttpsMXSessionTestWithBob:(XCTestCase*)testCase
+                        readyToTest:(void (^)(MXSession *mxSession, XCTestExpectation *expectation))readyToTest
+{
+    [self doHttpsMXRestClientTestWithBob:testCase readyToTest:^(MXRestClient *bobRestClient, XCTestExpectation *expectation) {
+        MXSession *mxSession = [[MXSession alloc] initWithMatrixRestClient:bobRestClient];
+
+        [mxSession start:^{
+
+            readyToTest(mxSession, expectation);
+            
+        } failure:^(NSError *error) {
+            NSAssert(NO, @"Cannot set up intial test conditions - error: %@", error);
+        }];
+    }];
+}
+
+
 #pragma mark - tools
 
 - (void)relogUserSession:(MXSession*)session withPassword:(NSString*)password onComplete:(void (^)(MXSession *newSession))onComplete
@@ -628,6 +752,39 @@ NSMutableArray *roomsToClean;
     }];
 }
 
+- (void)relogUserSessionWithNewDevice:(MXSession*)session withPassword:(NSString*)password onComplete:(void (^)(MXSession *newSession))onComplete
+{
+    NSString *userId = session.matrixRestClient.credentials.userId;
+
+    [session enableCrypto:NO success:^{
+
+        [session close];
+
+        MXRestClient *mxRestClient = [[MXRestClient alloc] initWithHomeServer:kMXTestsHomeServerURL
+                                            andOnUnrecognizedCertificateBlock:nil];
+
+        [mxRestClient loginWithLoginType:kMXLoginFlowTypePassword username:userId password:password success:^(MXCredentials *credentials) {
+
+            MXRestClient *mxRestClient2 = [[MXRestClient alloc] initWithCredentials:credentials andOnUnrecognizedCertificateBlock:nil];
+            MXSession *newSession = [[MXSession alloc] initWithMatrixRestClient:mxRestClient2];
+
+            [newSession start:^{
+
+                onComplete(newSession);
+
+            } failure:^(NSError *error) {
+                NSAssert(NO, @"Cannot set up intial test conditions - error: %@", error);
+            }];
+
+        } failure:^(NSError *error) {
+            NSAssert(NO, @"Cannot relog %@. Error: %@", userId, error);
+        }];
+    } failure:^(NSError *error) {
+        NSAssert(NO, @"Cannot logout %@. Error: %@", userId, error);
+    }];
+}
+
+
 
 - (void)closeMXSession:(MXSession*)mxSession
 {
@@ -658,7 +815,7 @@ NSMutableArray *roomsToClean;
     [mxSession close];
 }
 
-- (void)leaveAllRoomsAsync:(NSMutableArray*)rooms onComplete:(void (^)())onComplete
+- (void)leaveAllRoomsAsync:(NSMutableArray*)rooms onComplete:(void (^)(void))onComplete
 {
     if (rooms.count)
     {

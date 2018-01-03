@@ -18,6 +18,8 @@
 
 #ifdef MX_CRYPTO
 
+#import "MXCryptoConstants.h"
+
 @implementation MXOlmInboundGroupSession
 
 - (instancetype)initWithSessionKey:(NSString *)sessionKey
@@ -35,6 +37,70 @@
 }
 
 
+#pragma mark - import/export
+- (MXMegolmSessionData *)exportSessionDataAtMessageIndex:(NSUInteger)messageIndex
+{
+    MXMegolmSessionData *sessionData;
+
+    NSError *error;
+    NSString *sessionKey = [_session exportSessionAtMessageIndex:messageIndex error:&error];
+
+    if (!error)
+    {
+        sessionData = [[MXMegolmSessionData alloc] init];
+
+        sessionData.senderKey = _senderKey;
+        sessionData.forwardingCurve25519KeyChain = _forwardingCurve25519KeyChain;
+        sessionData.senderClaimedKeys = _keysClaimed;
+        sessionData.roomId = _roomId;
+        sessionData.sessionId = _session.sessionIdentifier;
+        sessionData.sessionKey = sessionKey;
+        sessionData.algorithm = kMXCryptoMegolmAlgorithm;
+    }
+    else
+    {
+        NSLog(@"[MXOlmInboundGroupSession] exportSessionData: Cannot export session with id %@-%@. Error: %@", _session.sessionIdentifier, _senderKey, error);
+    }
+
+    return sessionData;
+}
+
+- (MXMegolmSessionData *)exportSessionData
+{
+    return [self exportSessionDataAtMessageIndex:_session.firstKnownIndex];
+}
+
+- (instancetype)initWithImportedSessionKey:(NSString *)sessionKey
+{
+    self = [self init];
+    if (self)
+    {
+        NSError *error;
+        _session  = [[OLMInboundGroupSession alloc] initInboundGroupSessionWithImportedSession:sessionKey error:&error];
+        if (!_session)
+        {
+            NSLog(@"[MXOlmInboundGroupSession] initWithImportedSessionKey failed. Error: %@", error);
+            return nil;
+        }
+    }
+
+    return self;
+}
+
+- (instancetype)initWithImportedSessionData:(MXMegolmSessionData *)data
+{
+    self = [self initWithImportedSessionKey:data.sessionKey];
+    if (self)
+    {
+        _senderKey = data.senderKey;
+        _forwardingCurve25519KeyChain = data.forwardingCurve25519KeyChain;
+        _keysClaimed = data.senderClaimedKeys;
+        _roomId = data.roomId;
+    }
+    return self;
+}
+
+
 #pragma mark - NSCoding
 - (instancetype)initWithCoder:(NSCoder *)aDecoder
 {
@@ -44,6 +110,7 @@
         _session = [aDecoder decodeObjectForKey:@"session"];
         _roomId = [aDecoder decodeObjectForKey:@"roomId"];
         _senderKey = [aDecoder decodeObjectForKey:@"senderKey"];
+        _forwardingCurve25519KeyChain = [aDecoder decodeObjectForKey:@"forwardingCurve25519KeyChain"];
         _keysClaimed = [aDecoder decodeObjectForKey:@"keysClaimed"];
     }
     return self;
@@ -55,6 +122,7 @@
     [aCoder encodeObject:_roomId forKey:@"roomId"];
     [aCoder encodeObject:_senderKey forKey:@"senderKey"];
     [aCoder encodeObject:_keysClaimed forKey:@"keysClaimed"];
+    [aCoder encodeObject:_forwardingCurve25519KeyChain forKey:@"forwardingCurve25519KeyChain"];
 }
 
 @end

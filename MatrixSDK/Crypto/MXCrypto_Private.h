@@ -21,8 +21,10 @@
 #ifdef MX_CRYPTO
 
 #import "MXCryptoStore.h"
+#import "MXSession.h"
 #import "MXRestClient.h"
 #import "MXOlmDevice.h"
+#import "MXDeviceList.h"
 #import "MXCryptoAlgorithms.h"
 #import "MXUsersDevicesMap.h"
 #import "MXOlmSessionResult.h"
@@ -47,6 +49,11 @@
 @property (nonatomic, readonly) MXOlmDevice *olmDevice;
 
 /**
+ The Matrix session.
+ */
+@property (nonatomic, readonly) MXSession *mxSession;
+
+/**
   The instance used to make requests to the homeserver.
  */
 @property (nonatomic, readonly) MXRestClient *matrixRestClient;
@@ -55,6 +62,11 @@
  The queue used for almost all crypto processing.
  */
 @property (nonatomic, readonly) dispatch_queue_t cryptoQueue;
+
+/**
+ The list of devices.
+ */
+@property (nonatomic, readonly) MXDeviceList *deviceList;
 
 /**
  The queue used for decryption.
@@ -70,53 +82,6 @@
  */
 @property (nonatomic, readonly) dispatch_queue_t decryptionQueue;
 
-/**
- Upload the device keys to the homeserver and ensure that the
- homeserver has enough one-time keys.
-
- @param maxKeys The maximum number of keys to generate.
- 
- @param success A block object called when the operation succeeds.
- @param failure A block object called when the operation fails.
-
- @return a MXHTTPOperation instance.
- */
-- (MXHTTPOperation*)uploadKeys:(NSUInteger)maxKeys
-                       success:(void (^)())success
-                       failure:(void (^)(NSError *))failure;
-
-/**
- Download the device keys for a list of users and stores the keys in the MXStore.
-
- @param userIds The users to fetch.
- @param forceDownload Always download the keys even if cached.
- 
- @param success A block object called when the operation succeeds.
- @param failure A block object called when the operation fails.
- 
- @return a MXHTTPOperation instance. May be nil if the data is already in the store.
- */
-- (MXHTTPOperation*)downloadKeys:(NSArray<NSString*>*)userIds forceDownload:(BOOL)forceDownload
-                         success:(void (^)(MXUsersDevicesMap<MXDeviceInfo*> *usersDevicesInfoMap))success
-                         failure:(void (^)(NSError *error))failure;
-
-/**
- Get the stored device keys for a user.
-
- @param userId the user to list keys for.
- @return the list of devices.
- */
-- (NSArray<MXDeviceInfo*>*)storedDevicesForUser:(NSString*)userId;
-
-/**
- Find a device by curve25519 identity key
-
- @param userId the owner of the device.
- @param algorithm the encryption algorithm.
- @param senderKey the curve25519 key to match.
- @return the device info.
- */
-- (MXDeviceInfo*)deviceWithIdentityKey:(NSString*)senderKey forUser:(NSString*)userId andAlgorithm:(NSString*)algorithm;
 
 /**
  Get the device which sent an event.
@@ -131,9 +96,10 @@
 
  @param roomId the room id to enable encryption in.
  @param algorithm the encryption config for the room.
+ @param inhibitDeviceQuery YES to suppress device list query for users in the room (for now)
  @return YES if the operation succeeds.
  */
-- (BOOL)setEncryptionInRoom:(NSString*)roomId withAlgorithm:(NSString*)algorithm;
+- (BOOL)setEncryptionInRoom:(NSString*)roomId withAlgorithm:(NSString*)algorithm inhibitDeviceQuery:(BOOL)inhibitDeviceQuery;
 
 /**
  Try to make sure we have established olm sessions for the given users.
@@ -165,12 +131,41 @@
  Encrypt an event payload for a list of devices.
 
  @param payloadFields fields to include in the encrypted payload.
- @param deviceInfos the list of the recipient devices.
+ @param devices the list of the recipient devices.
 
  @return the content for an m.room.encrypted event.
  */
 - (NSDictionary*)encryptMessage:(NSDictionary*)payloadFields forDevices:(NSArray<MXDeviceInfo*>*)devices;
 
+/**
+ Get a decryptor for a given room and algorithm.
+
+ If we already have a decryptor for the given room and algorithm, return
+ it. Otherwise try to instantiate it.
+
+ @param roomId room id for decryptor. If undefined, a temporary decryptor is instantiated.
+ @param algorithm the crypto algorithm.
+ @return the decryptor.
+ */
+- (id<MXDecrypting>)getRoomDecryptor:(NSString*)roomId algorithm:(NSString*)algorithm;
+
+
+#pragma mark - Key sharing
+
+/**
+ Send a request for some room keys, if we have not already done so.
+
+ @param requestBody the requestBody.
+ @param recipients a {Array<{userId: string, deviceId: string}>}.
+ */
+- (void)requestRoomKey:(NSDictionary*)requestBody recipients:(NSArray<NSDictionary<NSString*, NSString*>*>*)recipients;
+
+/**
+ Cancel any earlier room key request.
+
+ @param requestBody parameters to match for cancellation
+ */
+- (void)cancelRoomKeyRequest:(NSDictionary*)requestBody;
 
 @end
 

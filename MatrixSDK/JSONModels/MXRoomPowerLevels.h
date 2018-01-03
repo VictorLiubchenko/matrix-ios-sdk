@@ -69,6 +69,12 @@
  */
 @property (nonatomic) NSInteger invite;
 
+/**
+ The minimum power level for using sender_notification_permission notification condition ("@room").
+ Notification key -> minimum power level
+ */
+@property (nonatomic) NSDictionary<NSString*, NSNumber*> *notifications;
+
 
 #pragma mark - minimum power level for sending events
 /**
@@ -96,7 +102,7 @@
  @param eventTypeString the type of event.
  @return the required minimum power level.
  */
-- (NSInteger)minimumPowerLevelForSendingEventAsMessage:(MXEventTypeString)eventTypeString;
+- (NSInteger)minimumPowerLevelForSendingEventAsMessage:(MXEventTypeString)eventTypeString NS_REFINED_FOR_SWIFT;
 
 /**
  Helper to get the minimum power level the user must have to send an event of the given type
@@ -105,6 +111,15 @@
  @param eventTypeString the type of event.
  @return the required minimum power level.
  */
-- (NSInteger)minimumPowerLevelForSendingEventAsStateEvent:(MXEventTypeString)eventTypeString;
+- (NSInteger)minimumPowerLevelForSendingEventAsStateEvent:(MXEventTypeString)eventTypeString NS_REFINED_FOR_SWIFT;
+
+/**
+ Helper to get the minimum power level the user must have to send conditional notifications (like "@room").
+
+ @param key the notification key (like "room").
+ @param defaultPower the default value to return if the information is not available.
+ @return the required minimum power level.
+ */
+- (NSInteger)minimumPowerLevelForNotifications:(NSString*)key defaultPower:(NSInteger)defaultPower;
 
 @end

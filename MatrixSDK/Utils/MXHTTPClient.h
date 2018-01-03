@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -99,7 +100,7 @@ typedef BOOL (^MXHTTPClientOnUnrecognizedCertificate)(NSData *certificate);
  @param httpMethod the HTTP method (GET, PUT, ...)
  @param path the relative path of the server API to call.
  @param parameters the parameters to be set as a query string for `GET` requests, or the request HTTP body.
- @param timeout the timeout allocated for the request.
+ @param timeoutInSeconds the timeout allocated for the request.
 
  @param success A block object called when the operation succeeds. It provides the JSON response object from the the server.
  @param failure A block object called when the operation fails.
@@ -120,7 +121,7 @@ typedef BOOL (^MXHTTPClientOnUnrecognizedCertificate)(NSData *certificate);
  @param parameters (optional) the parameters to be set as a query string for `GET` requests, or the request HTTP body.
  @param data (optional) the data to post.
  @param headers (optional) the HTTP headers to set.
- @param timeout (optional) the timeout allocated for the request.
+ @param timeoutInSeconds (optional) the timeout allocated for the request.
  
  @param uploadProgress (optional) A block object called when the upload progresses.
 
@@ -140,13 +141,18 @@ typedef BOOL (^MXHTTPClientOnUnrecognizedCertificate)(NSData *certificate);
                           failure:(void (^)(NSError *error))failure;
 
 /**
- Return a random time to retry a request.
+ Return the amount of time to wait before retrying a request.
  
- a jitter is used to prevent all Matrix clients from retrying all in the same time
- if there is server side issue like server restart.
+ The time is based on an exponential backoff plus a jitter in order to prevent all Matrix clients 
+ from retrying all in the same time if there is server side issue like server restart.
  
- @return a random time in milliseconds between 5s and 8s.
+ @return a time in milliseconds like [2000, 4000, 8000, 16000, ...] + a jitter of 3000ms.
  */
-+ (NSUInteger)jitterTimeForRetry;
++ (NSUInteger)timeForRetry:(MXHTTPOperation*)httpOperation;
+
+/**
+ The certificates used to evaluate server trust according to the SSL pinning mode.
+ */
+@property (nonatomic, strong) NSSet <NSData *> *pinnedCertificates;
 
 @end

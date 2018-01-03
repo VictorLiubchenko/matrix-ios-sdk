@@ -1,5 +1,6 @@
 /*
  Copyright 2015 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -16,18 +17,19 @@
 
 #import "MXHTTPOperation.h"
 
+#import <AFNetworking/AFNetworking.h>
 
 #pragma mark - Constants definitions
 
 /**
  The default max attempts.
  */
-#define MXHTTPOPERATION_DEFAULT_MAX_RETRIES 3
+#define MXHTTPOPERATION_DEFAULT_MAX_RETRIES 40
 
 /**
  The default max time a request can be retried.
  */
-#define MXHTTPOPERATION_DEFAULT_MAX_TIME_MS 180000
+#define MXHTTPOPERATION_DEFAULT_MAX_TIME_MS 1800000
 
 
 @interface MXHTTPOperation ()
@@ -48,6 +50,7 @@
         _numberOfTries = 0;
         _maxNumberOfTries = MXHTTPOPERATION_DEFAULT_MAX_RETRIES;
         _maxRetriesTime = MXHTTPOPERATION_DEFAULT_MAX_TIME_MS;
+        _canceled = NO;
     }
     return self;
 }
@@ -57,7 +60,7 @@
     // Prevent further retry on this operation
     _maxNumberOfTries = 0;
     _maxRetriesTime = 0;
-
+    _canceled = YES;
     [_operation cancel];
 }
 
@@ -74,6 +77,7 @@
     _numberOfTries = operation.numberOfTries;
     _maxNumberOfTries = operation.maxRetriesTime;
     _maxRetriesTime = operation.maxRetriesTime;
+    _canceled = operation.canceled;
 }
 
 @end

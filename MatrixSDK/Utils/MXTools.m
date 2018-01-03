@@ -16,7 +16,10 @@
 #import "MXTools.h"
 
 #import <AVFoundation/AVFoundation.h>
+
+#if TARGET_OS_IPHONE
 #import <MobileCoreServices/MobileCoreServices.h>
+#endif
 
 #import "MXEnumConstants.h"
 
@@ -29,14 +32,17 @@ NSString *const kMXToolsRegexStringForMatrixEventIdentifier = @"\\$[A-Z0-9]+:[A-
 
 
 #pragma mark - MXTools static private members
-// Mapping from MXEventTypeString to MXEventType
-static NSDictionary*eventTypesMap;
+// Mapping from MXEventTypeString to MXEventType and vice versa
+static NSDictionary<MXEventTypeString, NSNumber*> *eventTypeMapStringToEnum;
+static NSArray<MXEventTypeString> *eventTypeMapEnumToString;
 
 static NSRegularExpression *isEmailAddressRegex;
 static NSRegularExpression *isMatrixUserIdentifierRegex;
 static NSRegularExpression *isMatrixRoomAliasRegex;
 static NSRegularExpression *isMatrixRoomIdentifierRegex;
 static NSRegularExpression *isMatrixEventIdentifierRegex;
+
+static NSUInteger transactionIdCount;
 
 
 @implementation MXTools
@@ -46,35 +52,48 @@ static NSRegularExpression *isMatrixEventIdentifierRegex;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
 
-        eventTypesMap = @{
-                          kMXEventTypeStringRoomName: @(MXEventTypeRoomName),
-                          kMXEventTypeStringRoomTopic: @(MXEventTypeRoomTopic),
-                          kMXEventTypeStringRoomAvatar: @(MXEventTypeRoomAvatar),
-                          kMXEventTypeStringRoomMember: @(MXEventTypeRoomMember),
-                          kMXEventTypeStringRoomCreate: @(MXEventTypeRoomCreate),
-                          kMXEventTypeStringRoomJoinRules: @(MXEventTypeRoomJoinRules),
-                          kMXEventTypeStringRoomPowerLevels: @(MXEventTypeRoomPowerLevels),
-                          kMXEventTypeStringRoomAliases: @(MXEventTypeRoomAliases),
-                          kMXEventTypeStringRoomCanonicalAlias: @(MXEventTypeRoomCanonicalAlias),
-                          kMXEventTypeStringRoomEncrypted: @(MXEventTypeRoomEncrypted),
-                          kMXEventTypeStringRoomEncryption: @(MXEventTypeRoomEncryption),
-                          kMXEventTypeStringRoomHistoryVisibility: @(MXEventTypeRoomHistoryVisibility),
-                          kMXEventTypeStringRoomGuestAccess: @(MXEventTypeRoomGuestAccess),
-                          kMXEventTypeStringRoomKey: @(MXEventTypeRoomKey),
-                          kMXEventTypeStringRoomMessage: @(MXEventTypeRoomMessage),
-                          kMXEventTypeStringRoomMessageFeedback: @(MXEventTypeRoomMessageFeedback),
-                          kMXEventTypeStringRoomRedaction: @(MXEventTypeRoomRedaction),
-                          kMXEventTypeStringRoomThirdPartyInvite: @(MXEventTypeRoomThirdPartyInvite),
-                          kMXEventTypeStringRoomTag: @(MXEventTypeRoomTag),
-                          kMXEventTypeStringPresence: @(MXEventTypePresence),
-                          kMXEventTypeStringTypingNotification: @(MXEventTypeTypingNotification),
-                          kMXEventTypeStringNewDevice: @(MXEventTypeNewDevice),
-                          kMXEventTypeStringCallInvite: @(MXEventTypeCallInvite),
-                          kMXEventTypeStringCallCandidates: @(MXEventTypeCallCandidates),
-                          kMXEventTypeStringCallAnswer: @(MXEventTypeCallAnswer),
-                          kMXEventTypeStringCallHangup: @(MXEventTypeCallHangup),
-                          kMXEventTypeStringReceipt: @(MXEventTypeReceipt)
-                          };
+        eventTypeMapEnumToString = @[
+                                kMXEventTypeStringRoomName,
+                                kMXEventTypeStringRoomTopic,
+                                kMXEventTypeStringRoomAvatar,
+                                kMXEventTypeStringRoomBotOptions,
+                                kMXEventTypeStringRoomMember,
+                                kMXEventTypeStringRoomCreate,
+                                kMXEventTypeStringRoomJoinRules,
+                                kMXEventTypeStringRoomPowerLevels,
+                                kMXEventTypeStringRoomAliases,
+                                kMXEventTypeStringRoomCanonicalAlias,
+                                kMXEventTypeStringRoomEncrypted,
+                                kMXEventTypeStringRoomEncryption,
+                                kMXEventTypeStringRoomGuestAccess,
+                                kMXEventTypeStringRoomHistoryVisibility,
+                                kMXEventTypeStringRoomKey,
+                                kMXEventTypeStringRoomForwardedKey,
+                                kMXEventTypeStringRoomKeyRequest,
+                                kMXEventTypeStringRoomMessage,
+                                kMXEventTypeStringRoomMessageFeedback,
+                                kMXEventTypeStringRoomPlumbing,
+                                kMXEventTypeStringRoomRedaction,
+                                kMXEventTypeStringRoomThirdPartyInvite,
+                                kMXEventTypeStringRoomTag,
+                                kMXEventTypeStringPresence,
+                                kMXEventTypeStringTypingNotification,
+                                kMXEventTypeStringReceipt,
+                                kMXEventTypeStringRead,
+                                kMXEventTypeStringReadMarker,
+                                kMXEventTypeStringCallInvite,
+                                kMXEventTypeStringCallCandidates,
+                                kMXEventTypeStringCallAnswer,
+                                kMXEventTypeStringCallHangup,
+                                ];
+
+        NSMutableDictionary *map = [NSMutableDictionary dictionaryWithCapacity:eventTypeMapEnumToString.count];
+        for (NSUInteger i = 0; i <eventTypeMapEnumToString.count; i++)
+        {
+            MXEventTypeString type = eventTypeMapEnumToString[i];
+            map[type] = @(i);
+        }
+        eventTypeMapStringToEnum = map;
 
         isEmailAddressRegex =  [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"^%@$", kMXToolsRegexStringForEmailAddress]
                                                                          options:NSRegularExpressionCaseInsensitive error:nil];
@@ -86,20 +105,25 @@ static NSRegularExpression *isMatrixEventIdentifierRegex;
                                                                                 options:NSRegularExpressionCaseInsensitive error:nil];
         isMatrixEventIdentifierRegex = [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"^%@$", kMXToolsRegexStringForMatrixEventIdentifier]
                                                                                  options:NSRegularExpressionCaseInsensitive error:nil];
+
+        transactionIdCount = 0;
     });
 }
 
 + (MXEventTypeString)eventTypeString:(MXEventType)eventType
 {
-    NSArray *matches = [eventTypesMap allKeysForObject:@(eventType)];
-    return [matches lastObject];
+    if (eventType < eventTypeMapEnumToString.count)
+    {
+        return eventTypeMapEnumToString[eventType];
+    }
+    return nil;
 }
 
 + (MXEventType)eventType:(MXEventTypeString)eventTypeString
 {
     MXEventType eventType = MXEventTypeCustom;
 
-    NSNumber *number = [eventTypesMap objectForKey:eventTypeString];
+    NSNumber *number = [eventTypeMapStringToEnum objectForKey:eventTypeString];
     if (number)
     {
         eventType = [number unsignedIntegerValue];
@@ -183,6 +207,11 @@ static NSRegularExpression *isMatrixEventIdentifierRegex;
     return [[NSProcessInfo processInfo] globallyUniqueString];
 }
 
++ (NSString *)generateTransactionId
+{
+    return [NSString stringWithFormat:@"m%tu.%tu", arc4random_uniform(INT32_MAX), transactionIdCount++];
+}
+
 + (NSString*)stripNewlineCharacters:(NSString *)inputString
 {
     return [inputString stringByReplacingOccurrencesOfString:@" *[\n\r]+[\n\r ]*" withString:@" " options:NSRegularExpressionSearch range:NSMakeRange(0, [inputString length])];
@@ -193,27 +222,47 @@ static NSRegularExpression *isMatrixEventIdentifierRegex;
 
 + (BOOL)isEmailAddress:(NSString *)inputString
 {
-    return (nil != [isEmailAddressRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    if (inputString)
+    {
+        return (nil != [isEmailAddressRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    }
+    return NO;
 }
 
 + (BOOL)isMatrixUserIdentifier:(NSString *)inputString
 {
-    return (nil != [isMatrixUserIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    if (inputString)
+    {
+        return (nil != [isMatrixUserIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    }
+    return NO;
 }
 
 + (BOOL)isMatrixRoomAlias:(NSString *)inputString
 {
-    return (nil != [isMatrixRoomAliasRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    if (inputString)
+    {
+        return (nil != [isMatrixRoomAliasRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    }
+    return NO;
 }
 
 + (BOOL)isMatrixRoomIdentifier:(NSString *)inputString
 {
-    return (nil != [isMatrixRoomIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    if (inputString)
+    {
+        return (nil != [isMatrixRoomIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    }
+    return NO;
 }
 
 + (BOOL)isMatrixEventIdentifier:(NSString *)inputString
 {
-    return (nil != [isMatrixEventIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    if (inputString)
+    {
+        return (nil != [isMatrixEventIdentifierRegex firstMatchInString:inputString options:0 range:NSMakeRange(0, inputString.length)]);
+    }
+    return NO;
 }
 
 
@@ -456,7 +505,7 @@ static NSMutableDictionary *fileExtensionByContentType = nil;
 
 + (void)convertVideoToMP4:(NSURL*)videoLocalURL
                   success:(void(^)(NSURL *videoLocalURL, NSString *mimetype, CGSize size, double durationInMs))success
-                  failure:(void(^)())failure
+                  failure:(void(^)(void))failure
 {
     NSParameterAssert(success);
     NSParameterAssert(failure);
@@ -547,6 +596,26 @@ static NSMutableDictionary *fileExtensionByContentType = nil;
         });
         
     }];
+}
+
+#pragma mark - JSON Serialisation
+
++ (NSString*)serialiseJSONObject:(id)jsonObject
+{
+    NSString *jsonString;
+
+    if ([NSJSONSerialization isValidJSONObject:jsonObject])
+    {
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:jsonObject options:0 error:nil];
+        jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    }
+    return jsonString;
+}
+
++ (id)deserialiseJSONString:(NSString*)jsonString
+{
+    NSData *jsonData = [jsonString dataUsingEncoding:NSUTF8StringEncoding];
+    return [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
 }
 
 @end

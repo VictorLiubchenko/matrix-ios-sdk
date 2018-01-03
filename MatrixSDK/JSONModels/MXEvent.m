@@ -17,12 +17,14 @@
 #import "MXEvent.h"
 
 #import "MXTools.h"
+#import "MXEventDecryptionResult.h"
 
 #pragma mark - Constants definitions
 
 NSString *const kMXEventTypeStringRoomName              = @"m.room.name";
 NSString *const kMXEventTypeStringRoomTopic             = @"m.room.topic";
 NSString *const kMXEventTypeStringRoomAvatar            = @"m.room.avatar";
+NSString *const kMXEventTypeStringRoomBotOptions        = @"m.room.bot.options";
 NSString *const kMXEventTypeStringRoomMember            = @"m.room.member";
 NSString *const kMXEventTypeStringRoomCreate            = @"m.room.create";
 NSString *const kMXEventTypeStringRoomJoinRules         = @"m.room.join_rules";
@@ -34,8 +36,11 @@ NSString *const kMXEventTypeStringRoomEncryption        = @"m.room.encryption";
 NSString *const kMXEventTypeStringRoomGuestAccess       = @"m.room.guest_access";
 NSString *const kMXEventTypeStringRoomHistoryVisibility = @"m.room.history_visibility";
 NSString *const kMXEventTypeStringRoomKey               = @"m.room_key";
+NSString *const kMXEventTypeStringRoomForwardedKey      = @"m.forwarded_room_key";
+NSString *const kMXEventTypeStringRoomKeyRequest        = @"m.room_key_request";
 NSString *const kMXEventTypeStringRoomMessage           = @"m.room.message";
 NSString *const kMXEventTypeStringRoomMessageFeedback   = @"m.room.message.feedback";
+NSString *const kMXEventTypeStringRoomPlumbing          = @"m.room.plumbing";
 NSString *const kMXEventTypeStringRoomRedaction         = @"m.room.redaction";
 NSString *const kMXEventTypeStringRoomThirdPartyInvite  = @"m.room.third_party_invite";
 NSString *const kMXEventTypeStringRoomTag               = @"m.tag";
@@ -43,12 +48,11 @@ NSString *const kMXEventTypeStringPresence              = @"m.presence";
 NSString *const kMXEventTypeStringTypingNotification    = @"m.typing";
 NSString *const kMXEventTypeStringReceipt               = @"m.receipt";
 NSString *const kMXEventTypeStringRead                  = @"m.read";
-NSString *const kMXEventTypeStringNewDevice             = @"m.new_device";
-
-NSString *const kMXEventTypeStringCallInvite          = @"m.call.invite";
-NSString *const kMXEventTypeStringCallCandidates      = @"m.call.candidates";
-NSString *const kMXEventTypeStringCallAnswer          = @"m.call.answer";
-NSString *const kMXEventTypeStringCallHangup          = @"m.call.hangup";
+NSString *const kMXEventTypeStringReadMarker            = @"m.fully_read";
+NSString *const kMXEventTypeStringCallInvite            = @"m.call.invite";
+NSString *const kMXEventTypeStringCallCandidates        = @"m.call.candidates";
+NSString *const kMXEventTypeStringCallAnswer            = @"m.call.answer";
+NSString *const kMXEventTypeStringCallHangup            = @"m.call.hangup";
 
 NSString *const kMXMessageTypeText      = @"m.text";
 NSString *const kMXMessageTypeEmote     = @"m.emote";
@@ -59,6 +63,8 @@ NSString *const kMXMessageTypeVideo     = @"m.video";
 NSString *const kMXMessageTypeLocation  = @"m.location";
 NSString *const kMXMessageTypeFile      = @"m.file";
 
+NSString *const kMXEventLocalEventIdPrefix = @"kMXEventLocalId_";
+
 NSString *const kMXMembershipStringInvite = @"invite";
 NSString *const kMXMembershipStringJoin   = @"join";
 NSString *const kMXMembershipStringLeave  = @"leave";
@@ -68,11 +74,34 @@ NSString *const kMXMembershipStringBan    = @"ban";
 uint64_t const kMXUndefinedTimestamp = (uint64_t)-1;
 
 NSString *const kMXEventDidChangeSentStateNotification = @"kMXEventDidChangeSentStateNotification";
+NSString *const kMXEventDidChangeIdentifierNotification = @"kMXEventDidChangeIdentifierNotification";
 NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotification";
+
+NSString *const kMXEventIdentifierKey = @"kMXEventIdentifierKey";
 
 #pragma mark - MXEvent
 @interface MXEvent ()
+{
+    /**
+     Curve25519 key which we believe belongs to the sender of the event.
+     See `senderKey` property.
+     */
+    NSString *senderCurve25519Key;
 
+    /**
+     Ed25519 key which the sender of this event (for olm) or the creator of the
+     megolm session (for megolm) claims to own.
+     See `claimedEd25519Key` property.
+     */
+    NSString *claimedEd25519Key;
+
+    /**
+     Curve25519 keys of devices involved in telling us about the senderCurve25519Key
+     and claimedEd25519Key.
+     See `forwardingCurve25519KeyChain` property.
+     */
+    NSArray<NSString *> *forwardingCurve25519KeyChain;
+}
 @end
 
 @implementation MXEvent
@@ -176,6 +205,21 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
     }
 }
 
+- (void)setEventId:(NSString *)eventId
+{
+    if (self.isLocalEvent && eventId && ![eventId isEqualToString:_eventId])
+    {
+        NSString *previousId = _eventId;
+        _eventId = eventId;
+        [[NSNotificationCenter defaultCenter] postNotificationName:kMXEventDidChangeIdentifierNotification object:self userInfo:@{kMXEventIdentifierKey:previousId}];
+    }
+    else
+    {
+        // Do not post the notification here, only the temporary local events are supposed to change their id.
+        _eventId = eventId;
+    }
+}
+
 - (MXEventTypeString)type
 {
     // Return the decrypted version if any
@@ -188,7 +232,7 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
     return _clearEvent ? _clearEvent.wireEventType : _wireEventType;
 }
 
-- (NSDictionary *)content
+- (NSDictionary<NSString *, id> *)content
 {
     // Return the decrypted version if any
     return _clearEvent ? _clearEvent.wireContent : _wireContent;
@@ -200,6 +244,12 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
 
     // Compute eventType
     _wireEventType = [MXTools eventType:_wireType];
+}
+
+- (void)setWireEventType:(MXEventType)wireEventType
+{
+    _wireEventType = wireEventType;
+    _wireType = [MXTools eventTypeString:_wireEventType];
 }
 
 - (void)setAge:(NSUInteger)age
@@ -251,6 +301,11 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
 {
     // The event is a state event if has a state_key
     return (nil != self.stateKey);
+}
+
+- (BOOL)isLocalEvent
+{
+    return [_eventId hasPrefix:kMXEventLocalEventIdPrefix];
 }
 
 - (BOOL)isRedactedEvent
@@ -469,11 +524,20 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
     return (self.wireEventType == MXEventTypeRoomEncrypted);
 }
 
-- (void)setClearData:(MXEvent *)clearEvent keysProved:(NSDictionary<NSString *,NSString *> *)keysProved keysClaimed:(NSDictionary<NSString *,NSString *> *)keysClaimed
+- (void)setClearData:(MXEventDecryptionResult *)decryptionResult
 {
-    _clearEvent = clearEvent;
-    _clearEvent.keysProved = keysProved;
-    _clearEvent.keysClaimed = keysClaimed;
+    _clearEvent = nil;
+    if (decryptionResult.clearEvent)
+    {
+        _clearEvent = [MXEvent modelFromJSON:decryptionResult.clearEvent];
+    }
+
+    if (_clearEvent)
+    {
+        _clearEvent->senderCurve25519Key = decryptionResult.senderCurve25519Key;
+        _clearEvent->claimedEd25519Key = decryptionResult.claimedEd25519Key;
+        _clearEvent->forwardingCurve25519KeyChain = decryptionResult.forwardingCurve25519KeyChain ? decryptionResult.forwardingCurve25519KeyChain : @[];
+    }
 
     // Notify only for events that are lately decrypted
     BOOL notify = (_decryptionError != nil);
@@ -489,32 +553,53 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
 
 - (NSString *)senderKey
 {
-    return self.keysProved[@"curve25519"];
-}
-
-- (NSDictionary<NSString *,NSString *> *)keysProved
-{
     if (_clearEvent)
     {
-        return _clearEvent.keysProved;
+        return _clearEvent->senderCurve25519Key;
     }
     else
     {
-        return _keysProved;
+        return senderCurve25519Key;
     }
 }
 
-- (NSDictionary<NSString *,NSString *> *)keysClaimed
+- (NSDictionary *)keysClaimed
+{
+    NSDictionary *keysClaimed;
+    NSString *selfClaimedEd25519Key = self.claimedEd25519Key;
+    if (selfClaimedEd25519Key)
+    {
+        keysClaimed =  @{
+                         @"ed25519": selfClaimedEd25519Key
+                         };
+    }
+    return keysClaimed;
+}
+
+- (NSString *)claimedEd25519Key
 {
     if (_clearEvent)
     {
-        return _clearEvent.keysClaimed;
+        return _clearEvent->claimedEd25519Key;
     }
     else
     {
-        return _keysClaimed;
+        return claimedEd25519Key;
     }
 }
+
+- (NSArray<NSString *> *)forwardingCurve25519KeyChain
+{
+    if (_clearEvent)
+    {
+        return _clearEvent->forwardingCurve25519KeyChain;
+    }
+    else
+    {
+        return forwardingCurve25519KeyChain;
+    }
+}
+
 
 
 #pragma mark - private
@@ -573,22 +658,31 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
     if (self)
     {
         _eventId = [aDecoder decodeObjectForKey:@"eventId"];
-        self.wireType = [aDecoder decodeObjectForKey:@"type"];
         _roomId = [aDecoder decodeObjectForKey:@"roomId"];
         _sender = [aDecoder decodeObjectForKey:@"userId"];
-        NSNumber *sentState = [aDecoder decodeObjectForKey:@"sentState"];
-        _sentState = [sentState unsignedIntegerValue];
+        _sentState = (MXEventSentState)[aDecoder decodeIntegerForKey:@"sentState"];
         _wireContent = [aDecoder decodeObjectForKey:@"content"];
         _prevContent = [aDecoder decodeObjectForKey:@"prevContent"];
         _stateKey = [aDecoder decodeObjectForKey:@"stateKey"];
-        NSNumber *originServerTs = [aDecoder decodeObjectForKey:@"originServerTs"];
-        _originServerTs = [originServerTs unsignedLongLongValue];
-        NSNumber *ageLocalTs = [aDecoder decodeObjectForKey:@"ageLocalTs"];
-        _ageLocalTs = [ageLocalTs unsignedLongLongValue];
+        _originServerTs = (uint64_t)[aDecoder decodeInt64ForKey:@"originServerTs"];
+        _ageLocalTs = (uint64_t)[aDecoder decodeInt64ForKey:@"ageLocalTs"];
         _unsignedData = [aDecoder decodeObjectForKey:@"unsigned"];
         _redacts = [aDecoder decodeObjectForKey:@"redacts"];
         _redactedBecause = [aDecoder decodeObjectForKey:@"redactedBecause"];
         _inviteRoomState = [aDecoder decodeObjectForKey:@"inviteRoomState"];
+        _sentError = [aDecoder decodeObjectForKey:@"sentError"];
+
+        _wireEventType = (MXEventType)[aDecoder decodeIntegerForKey:@"eventType"];
+        if (_wireEventType == MXEventTypeCustom)
+        {
+            self.wireType = [aDecoder decodeObjectForKey:@"type"];
+        }
+        else
+        {
+            // Retrieve the type string from the enum
+            self.wireEventType = _wireEventType;
+        }
+
     }
     return self;
 }
@@ -598,17 +692,24 @@ NSString *const kMXEventDidDecryptNotification = @"kMXEventDidDecryptNotificatio
     [aCoder encodeObject:_eventId forKey:@"eventId"];
     [aCoder encodeObject:_roomId forKey:@"roomId"];
     [aCoder encodeObject:_sender forKey:@"userId"];
-    [aCoder encodeObject:@(_sentState) forKey:@"sentState"];
-    [aCoder encodeObject:_wireType forKey:@"type"];
+    [aCoder encodeInteger:(NSInteger)_sentState forKey:@"sentState"];
     [aCoder encodeObject:_wireContent forKey:@"content"];
     [aCoder encodeObject:_prevContent forKey:@"prevContent"];
     [aCoder encodeObject:_stateKey forKey:@"stateKey"];
-    [aCoder encodeObject:@(_originServerTs) forKey:@"originServerTs"];
-    [aCoder encodeObject:@(_ageLocalTs) forKey:@"ageLocalTs"];
+    [aCoder encodeInt64:(int64_t)_originServerTs forKey:@"originServerTs"];
+    [aCoder encodeInt64:(int64_t)_ageLocalTs forKey:@"ageLocalTs"];
     [aCoder encodeObject:_unsignedData forKey:@"unsigned"];
     [aCoder encodeObject:_redacts forKey:@"redacts"];
     [aCoder encodeObject:_redactedBecause forKey:@"redactedBecause"];
     [aCoder encodeObject:_inviteRoomState forKey:@"inviteRoomState"];
+    [aCoder encodeObject:_sentError forKey:@"sentError"];
+
+    [aCoder encodeInteger:(NSInteger)_wireEventType forKey:@"eventType"];
+    if (_wireEventType == MXEventTypeCustom)
+    {
+        // Store the type string only if it does not have an enum
+        [aCoder encodeObject:_wireType forKey:@"type"];
+    }
 }
 
 @end

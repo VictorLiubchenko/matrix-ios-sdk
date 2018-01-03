@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -142,6 +143,10 @@ FOUNDATION_EXPORT NSString *const kMXSessionDidLeaveRoomNotification;
 
 /**
  Posted when MXSession has performed a server sync.
+
+ The passed userInfo dictionary contains:
+ - `kMXSessionNotificationSyncResponseKey` the server response, a `MXSyncResponse` object.
+ - `kMXSessionNotificationErrorKey` the error if any.
  */
 FOUNDATION_EXPORT NSString *const kMXSessionDidSyncNotification;
 
@@ -164,18 +169,6 @@ FOUNDATION_EXPORT NSString *const kMXSessionInvitedRoomsDidChangeNotification;
  - `kMXSessionNotificationEventKey` the to-device MXEvent.
  */
 FOUNDATION_EXPORT NSString *const kMXSessionOnToDeviceEventNotification;
-
-
-#pragma mark - Notifications keys
-/**
- The key in notification userInfo dictionary representating the roomId.
- */
-FOUNDATION_EXPORT NSString *const kMXSessionNotificationRoomIdKey;
-
-/**
- The key in notification userInfo dictionary representating the event.
- */
-FOUNDATION_EXPORT NSString *const kMXSessionNotificationEventKey;
 
 /**
  Posted when MXSession has detected a change in the `ignoredUsers` property.
@@ -208,6 +201,29 @@ FOUNDATION_EXPORT NSString *const kMXSessionDidCorruptDataNotification;
 FOUNDATION_EXPORT NSString *const kMXSessionCryptoDidCorruptDataNotification;
 
 
+#pragma mark - Notifications keys
+/**
+ The key in notification userInfo dictionary representating the roomId.
+ */
+FOUNDATION_EXPORT NSString *const kMXSessionNotificationRoomIdKey;
+
+/**
+ The key in notification userInfo dictionary representating the event.
+ */
+FOUNDATION_EXPORT NSString *const kMXSessionNotificationEventKey;
+
+/**
+ The key in notification userInfo dictionary representating the matrix homeserver
+ response (MXSyncResponse instance) to /sync.
+ */
+FOUNDATION_EXPORT NSString *const kMXSessionNotificationSyncResponseKey;
+
+/**
+ The key in notification userInfo dictionary representating the error.
+ */
+FOUNDATION_EXPORT NSString *const kMXSessionNotificationErrorKey;
+
+
 #pragma mark - Other constants
 /**
  Fake tag used to identify rooms that do not have tags in `roomsWithTag` and `roomsByTags` methods.
@@ -237,6 +253,21 @@ FOUNDATION_EXPORT NSString *const kMXSessionNoRoomTag;
  The current state of the session.
  */
 @property (nonatomic, readonly) MXSessionState state;
+
+/**
+ The flag indicating whether the initial sync has been done.
+ */
+@property (nonatomic, readonly) BOOL isEventStreamInitialised;
+
+/**
+ The flag indicating that we are trying to establish the event streams (/sync)
+ as quick as possible, even if there are no events queued. This is required in
+ some situations:
+    - When the connection dies, we want to know asap when it comes back (We don't
+      want to have to wait for an event or a timeout).
+    - We want to know if the server has any to-device messages queued up for us.
+ */
+@property (nonatomic, readonly) BOOL catchingUp;
 
 /**
  The profile of the current user.
@@ -296,8 +327,8 @@ FOUNDATION_EXPORT NSString *const kMXSessionNoRoomTag;
  @param failure A block object called when the operation fails. In case of failure during the
  initial sync the session state is MXSessionStateInitialSyncFailed.
  */
-- (void)start:(void (^)())onServerSyncDone
-      failure:(void (^)(NSError *error))failure;
+- (void)start:(void (^)(void))onServerSyncDone
+      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Start the session like `[MXSession start]` but preload the requested number of messages
@@ -310,12 +341,15 @@ FOUNDATION_EXPORT NSString *const kMXSessionNoRoomTag;
  @param failure A block object called when the operation fails.
  */
 - (void)startWithMessagesLimit:(NSUInteger)messagesLimit
-              onServerSyncDone:(void (^)())onServerSyncDone
-                       failure:(void (^)(NSError *error))failure;
+              onServerSyncDone:(void (^)(void))onServerSyncDone
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Pause the session events stream.
- Caution: this action is ignored if the session state is not MXSessionStateRunning.
+ This action may be delayed by using `retainPreventPause`.
+ 
+ Caution: this action is ignored if the session state is not MXSessionStateRunning
+ or MXSessionStateBackgroundSyncInProgress.
  
  No more live events will be received by the listeners.
  */
@@ -330,7 +364,10 @@ FOUNDATION_EXPORT NSString *const kMXSessionNoRoomTag;
                    CAUTION The session state is updated (to MXSessionStateRunning) after
                    calling this block. It SHOULD not be modified by this block.
  */
-- (void)resume:(void (^)())resumeDone;
+- (void)resume:(void (^)(void))resumeDone;
+
+typedef void (^MXOnBackgroundSyncDone)();
+typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 
 /**
  Perform an events stream catchup in background (by keeping user offline).
@@ -339,10 +376,9 @@ FOUNDATION_EXPORT NSString *const kMXSessionNoRoomTag;
  @param backgroundSyncDone A block called when the SDK has been successfully performed a catchup
  @param backgroundSyncfails A block called when the catchup fails.
  */
-typedef void (^MXOnBackgroundSyncDone)();
-typedef void (^MXOnBackgroundSyncFail)(NSError *error);
-
-- (void)backgroundSync:(unsigned int)timeout success:(MXOnBackgroundSyncDone)backgroundSyncDone failure:(MXOnBackgroundSyncFail)backgroundSyncfails;
+- (void)backgroundSync:(unsigned int)timeout
+               success:(MXOnBackgroundSyncDone)backgroundSyncDone
+               failure:(MXOnBackgroundSyncFail)backgroundSyncfails NS_REFINED_FOR_SWIFT;
 
 /**
  Restart the session events stream.
@@ -366,8 +402,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)logout:(void (^)())success
-                   failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)logout:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - MXSession pause prevention
@@ -384,6 +420,9 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 
  Note that the events stream continues on a UIBackgroundTask which can be terminated
  by the system at anytime.
+ 
+ @warning This request is ignored if no background mode handler has been set in the
+ MXSDKOptions sharedInstance (see `backgroundModeHandler`).
  */
 - (void)retainPreventPause;
 
@@ -411,8 +450,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  the home server.
  @param failure A block object called when the operation fails.
  */
-- (void)setStore:(id<MXStore>)store success:(void (^)())onStoreDataReady
-         failure:(void (^)(NSError *error))failure;
+- (void)setStore:(id<MXStore>)store success:(void (^)(void))onStoreDataReady
+         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  An array of event types for which read receipts are sent.
@@ -422,20 +461,9 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 
 /**
  The list of event types considered for counting unread messages returned by MXRoom.localUnreadEventCount.
- By default [m.room.name, m.room.topic, m.room.message, m.call.invite].
+ By default [m.room.name, m.room.topic, m.room.message, m.call.invite, m.room.encrypted].
  */
 @property (nonatomic) NSArray<MXEventTypeString> *unreadEventTypes;
-
-/**
- Tell whether the profiles changes of the room members should be ignored in the last message processing.
- NO by default.
- 
- @discussion An event (with MXEventTypeRoomMember type) is added in room history each time a room member changes his profile.
- This event replaces the last message of all the rooms to which the member belongs.
- This impacts the rooms ordering based on their last message.
- Ignoring the profile changes in last message handling prevents an irrelevant reordering of the room list.
- */
-@property (nonatomic) BOOL ignoreProfileChangesDuringLastMessageProcessing;
 
 /**
  Enable VoIP by setting the external VoIP stack to use.
@@ -454,10 +482,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 
  @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
- 
- @return the HTTP operation that may be required. Can be nil.
  */
-- (MXHTTPOperation*)enableCrypto:(BOOL)enableCrypto success:(void (^)())success failure:(void (^)(NSError *error))failure;
+- (void)enableCrypto:(BOOL)enableCrypto success:(void (^)(void))success failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Rooms operations
@@ -480,7 +506,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
                      roomAlias:(NSString*)roomAlias
                          topic:(NSString*)topic
                        success:(void (^)(MXRoom *room))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a room.
@@ -512,7 +538,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
                       isDirect:(BOOL)isDirect
                         preset:(MXRoomPreset)preset
                        success:(void (^)(MXRoom *room))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a room.
@@ -527,7 +553,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  */
 - (MXHTTPOperation*)createRoom:(NSDictionary*)parameters
                        success:(void (^)(MXRoom *room))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Join a room.
@@ -541,7 +567,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  */
 - (MXHTTPOperation*)joinRoom:(NSString*)roomIdOrAlias
                      success:(void (^)(MXRoom *room))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Join a room where the user has been invited by a 3PID invitation.
@@ -557,7 +583,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 - (MXHTTPOperation*)joinRoom:(NSString*)roomIdOrAlias
                  withSignUrl:(NSString*)signUrl
                      success:(void (^)(MXRoom *room))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Leave a room.
@@ -571,8 +597,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)leaveRoom:(NSString*)roomId
-                      success:(void (^)())success
-                      failure:(void (^)(NSError *error))failure;
+                      success:(void (^)(void))success
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - The user's rooms
@@ -588,7 +614,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 /**
  Get the MXRoom instance of the room that owns the passed room alias.
 
- @param roomId The room alias to look for.
+ @param alias The room alias to look for.
 
  @return the MXRoom instance.
  */
@@ -599,7 +625,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  
  @return an array of MXRooms.
  */
-- (NSArray<MXRoom*>*)rooms;
+- (NSArray<MXRoom*>*)rooms NS_REFINED_FOR_SWIFT;
 
 /**
  Return the first joined direct chat listed in account data for this user.
@@ -619,13 +645,79 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 /**
  Update the direct rooms list on homeserver side with the current value of the `directRooms` property.
  
+ The `kMXSessionDirectRoomsDidChangeNotification` notification is posted on success.
+ 
  @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
  
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)uploadDirectRooms:(void (^)())success
-                              failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)uploadDirectRooms:(void (^)(void))success
+                              failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+
+#pragma mark - Rooms summaries
+/**
+ Get the MXRoomSummary instance of a room.
+
+ @param roomId The room id to the room.
+
+ @return the MXRoomSummary instance.
+ */
+- (MXRoomSummary *)roomSummaryWithRoomId:(NSString*)roomId;
+
+/**
+ Get the list of all rooms summaries.
+
+ @return an array of MXRoomSummary.
+ */
+- (NSArray<MXRoomSummary*>*)roomsSummaries;
+
+/**
+ Recompute all room summaries last message.
+
+ This may lead to pagination requests to the homeserver. Updated room summaries will be
+ notified by `kMXRoomSummaryDidChangeNotification`.
+ */
+- (void)resetRoomsSummariesLastMessage;
+
+/**
+ Make sure that all room summaries have a last message.
+ 
+ This may lead to pagination requests to the homeserver. Updated room summaries will be 
+ notified by `kMXRoomSummaryDidChangeNotification`.
+ */
+- (void)fixRoomsSummariesLastMessage;
+
+/**
+ Delegate for updating room summaries.
+ By default, it is the one returned by [MXRoomSummaryUpdater roomSummaryUpdaterForSession:].
+ */
+@property id<MXRoomSummaryUpdating> roomSummaryUpdateDelegate;
+
+#pragma mark - Missed notifications
+
+/**
+ The total number of the missed notifications in this session.
+ */
+- (NSUInteger)missedNotificationsCount;
+
+/**
+ The current number of the rooms with some missed notifications.
+ Note: the invites are not taken into account in the returned count.
+ */
+- (NSUInteger)missedDiscussionsCount;
+
+/**
+ The current number of the rooms with some unread highlighted messages.
+ */
+- (NSUInteger)missedHighlightDiscussionsCount;
+
+/**
+ Mark all messages as read.
+ */
+- (void)markAllMessagesAsRead;
+
 
 #pragma mark - Room peeking
 /**
@@ -640,7 +732,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  */
 - (void)peekInRoomWithRoomId:(NSString*)roomId
                      success:(void (^)(MXPeekingRoom *peekingRoom))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Stop peeking a room.
@@ -700,8 +792,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)ignoreUsers:(NSArray<NSString*>*)userIds
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Unignore a list of users.
@@ -713,31 +805,8 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)unIgnoreUsers:(NSArray<NSString*>*)userIds
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
-
-
-#pragma mark - User's recents
-/**
- Get the list of all last messages of all rooms.
- The returned array is time ordered: the first item is the more recent message.
- 
- The SDK will find the last event which type is among the requested event types. If
- no event matches `types`, the true last event, whatever its type, will be returned.
-
- @param types an array of event types strings (MXEventTypeString) the app is interested in.
- @return an array of MXEvents.
- */
-- (NSArray<MXEvent*>*)recentsWithTypeIn:(NSArray<MXEventTypeString>*)types;
-
-/**
- Sort a list of rooms according to their last messages time stamp.
- 
- @param rooms the rooms to sort.
- @param types an array of event types strings (MXEventTypeString) the app is interested in.
- @return an array where rooms are ordered.
- */
-- (NSArray<MXRoom*>*)sortRooms:(NSArray<MXRoom*>*)rooms byLastMessageWithTypeIn:(NSArray<MXEventTypeString>*)types;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - User's special rooms
@@ -773,6 +842,13 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 - (NSDictionary<NSString*, NSArray<MXRoom*>*>*)roomsByTags;
 
 /**
+ Comparator used to sort the list of rooms with the same tag name, according to their tag order.
+ 
+ @param tag the tag for which the tag order must be compared for these 2 rooms.
+ */
+- (NSComparisonResult)compareRoomsByTag:(NSString*)tag room1:(MXRoom*)room1 room2:(MXRoom*)room2;
+
+/**
  Compute the tag order to use for a room tag so that the room will appear in the expected position
  in the list of rooms stamped with this tag.
 
@@ -798,7 +874,7 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
 /**
  Reset replay attack data for the given timeline.
 
- @param the id of the timeline.
+ @param timeline the id of the timeline.
  */
 - (void)resetReplayAttackCheckInTimeline:(NSString*)timeline;
 
@@ -809,19 +885,19 @@ typedef void (^MXOnBackgroundSyncFail)(NSError *error);
  
  The listener will receive all events including all events of all rooms.
  
- @param listenerBlock the block that will called once a new event has been handled.
+ @param onEvent the block that will called once a new event has been handled.
  @return a reference to use to unregister the listener
  */
-- (id)listenToEvents:(MXOnSessionEvent)onEvent;
+- (id)listenToEvents:(MXOnSessionEvent)onEvent NS_REFINED_FOR_SWIFT;
 
 /**
  Register a global listener for some types of events.
  
  @param types an array of event types strings (MXEventTypeString) to listen to.
- @param listenerBlock the block that will called once a new event has been handled.
+ @param onEvent the block that will called once a new event has been handled.
  @return a reference to use to unregister the listener
  */
-- (id)listenToEventsOfTypes:(NSArray*)types onEvent:(MXOnSessionEvent)onEvent;
+- (id)listenToEventsOfTypes:(NSArray*)types onEvent:(MXOnSessionEvent)onEvent NS_REFINED_FOR_SWIFT;
 
 /**
  Unregister a listener.

@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -16,6 +17,8 @@
 
 #import "MXHTTPClient.h"
 #import "MXError.h"
+#import "MXSDKOptions.h"
+#import "MXBackgroundModeHandler.h"
 
 #import <AFNetworking/AFNetworking.h>
 
@@ -24,11 +27,6 @@
  The max time in milliseconds a request can be retried in the case of rate limiting errors.
  */
 #define MXHTTPCLIENT_RATE_LIMIT_MAX_MS 20000
-
-/**
- The base time in milliseconds between 2 retries.
- */
-#define MXHTTPCLIENT_RETRY_AFTER_MS 5000
 
 /**
  The jitter value to apply to compute a random retry time.
@@ -71,7 +69,7 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
     /**
      The current background task id if any.
      */
-    UIBackgroundTaskIdentifier backgroundTaskIdentifier;
+    NSUInteger backgroundTaskIdentifier;
 
     /**
      Flag to indicate that the underlying NSURLSession has been invalidated.
@@ -98,21 +96,20 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
         accessToken = access_token;
 
         httpManager = [[AFHTTPSessionManager alloc] initWithBaseURL:[NSURL URLWithString:baseURL]];
-        
-        // If some certificates are included in app bundle, we enable the AFNetworking pinning mode based on certificate 'AFSSLPinningModeCertificate'.
-        // These certificates will be handled as pinned certificates, the app allows them without prompting the user.
-        // This is an additional option for the developer to handle certificates.
-        AFSecurityPolicy *securityPolicy = [AFSecurityPolicy policyWithPinningMode:AFSSLPinningModeCertificate];
-        if (securityPolicy.pinnedCertificates.count)
-        {
-            securityPolicy.allowInvalidCertificates = YES;
-            securityPolicy.validatesDomainName = YES; // Enable the domain validation on pinned certificates retrieved from app bundle.
-            httpManager.securityPolicy = securityPolicy;
-        }
-        
+
+        [self setDefaultSecurityPolicy];
+
         onUnrecognizedCertificateBlock = onUnrecognizedCertBlock;
-        backgroundTaskIdentifier = UIBackgroundTaskInvalid;
-        
+
+        id<MXBackgroundModeHandler> handler = [MXSDKOptions sharedInstance].backgroundModeHandler;
+        if (handler)
+        {
+            backgroundTaskIdentifier = [handler invalidIdentifier];
+        }
+
+        // No need for caching. The sdk caches the data it needs
+        [httpManager.requestSerializer setCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
+
         // Send requests parameters in JSON format by default
         self.requestParametersInJSON = YES;
 
@@ -120,10 +117,14 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
         [self setUpSSLCertificatesHandler];
 
         // Track potential expected session invalidation (seen on iOS10 beta)
+        __weak typeof(self) weakSelf = self;
         [httpManager setSessionDidBecomeInvalidBlock:^(NSURLSession * _Nonnull session, NSError * _Nonnull error) {
-
-            NSLog(@"[MXHTTPClient] SessionDidBecomeInvalid: %@: %@", session, error);
-            invalidatedSession = YES;
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf)
+            {
+                NSLog(@"[MXHTTPClient] SessionDidBecomeInvalid: %@: %@", session, error);
+                strongSelf->invalidatedSession = YES;
+            }
         }];
     }
     return self;
@@ -132,30 +133,26 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
 - (void)dealloc
 {
     [self cancel];
-
-    if (backgroundTaskIdentifier != UIBackgroundTaskInvalid)
-    {
-        [self cleanupBackgroundTask];
-    }
-
-    httpManager = nil;
+    [self cleanupBackgroundTask];
+    
+    [[NSNotificationCenter defaultCenter] removeObserver:reachabilityObserver];
 }
 
 - (MXHTTPOperation*)requestWithMethod:(NSString *)httpMethod
-                   path:(NSString *)path
-             parameters:(NSDictionary*)parameters
-                success:(void (^)(NSDictionary *JSONResponse))success
-                failure:(void (^)(NSError *error))failure
+                                 path:(NSString *)path
+                           parameters:(NSDictionary*)parameters
+                              success:(void (^)(NSDictionary *JSONResponse))success
+                              failure:(void (^)(NSError *error))failure
 {
     return [self requestWithMethod:httpMethod path:path parameters:parameters timeout:-1 success:success failure:failure];
 }
 
 - (MXHTTPOperation*)requestWithMethod:(NSString *)httpMethod
-                   path:(NSString *)path
-             parameters:(NSDictionary*)parameters
-                timeout:(NSTimeInterval)timeoutInSeconds
-                success:(void (^)(NSDictionary *JSONResponse))success
-                failure:(void (^)(NSError *error))failure
+                                 path:(NSString *)path
+                           parameters:(NSDictionary*)parameters
+                              timeout:(NSTimeInterval)timeoutInSeconds
+                              success:(void (^)(NSDictionary *JSONResponse))success
+                              failure:(void (^)(NSError *error))failure
 {
     return [self requestWithMethod:httpMethod path:path parameters:parameters data:nil headers:nil timeout:timeoutInSeconds uploadProgress:nil success:success failure:failure ];
 }
@@ -352,7 +349,11 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
                         }
                     }
                 }
-                else if (mxHTTPOperation.numberOfTries < mxHTTPOperation.maxNumberOfTries && mxHTTPOperation.age < mxHTTPOperation.maxRetriesTime)
+                else if (mxHTTPOperation.numberOfTries < mxHTTPOperation.maxNumberOfTries
+                         && mxHTTPOperation.age < mxHTTPOperation.maxRetriesTime
+                         && !([error.domain isEqualToString:NSURLErrorDomain] && error.code == kCFURLErrorCancelled)    // No need to retry a cancelation (which can also happen on SSL error)
+                         && response.statusCode != 400 && response.statusCode != 401 && response.statusCode != 403      // No amount of retrying will save you now
+                         )
                 {
                     // Check if it is a network connectivity issue
                     AFNetworkReachabilityManager *networkReachabilityManager = [AFNetworkReachabilityManager sharedManager];
@@ -361,7 +362,7 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
                     if (networkReachabilityManager.isReachable)
                     {
                         // The problem is not the network, do simple retry later
-                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, [MXHTTPClient jitterTimeForRetry] * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, [MXHTTPClient timeForRetry:mxHTTPOperation] * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
 
                             NSLog(@"[MXHTTPClient] Retry request %p. Try #%tu/%tu. Age: %tums. Max retries time: %tums", mxHTTPOperation, mxHTTPOperation.numberOfTries + 1, mxHTTPOperation.maxNumberOfTries, mxHTTPOperation.age, mxHTTPOperation.maxRetriesTime);
 
@@ -459,6 +460,7 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
             //     - then, the sending of the message event associated to this media
             // When backgrounding the app while sending the media, the user expects that the two
             // requests complete.
+            
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self cleanupBackgroundTask];
             });
@@ -471,10 +473,12 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
     [mxHTTPOperation.operation resume];
 }
 
-+ (NSUInteger)jitterTimeForRetry
++ (NSUInteger)timeForRetry:(MXHTTPOperation *)httpOperation
 {
     NSUInteger jitter = arc4random_uniform(MXHTTPCLIENT_RETRY_JITTER_MS);
-    return  (MXHTTPCLIENT_RETRY_AFTER_MS + jitter);
+
+    NSUInteger retry = (2 << (httpOperation.numberOfTries - 1)) * 1000 + jitter;
+    return retry;
 }
 
 
@@ -503,29 +507,36 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
  */
 - (void)startBackgroundTask
 {
-    // Create the bg task if it does not exist yet
-    if (backgroundTaskIdentifier == UIBackgroundTaskInvalid)
+    @synchronized(self)
     {
-        UIApplication *application = [UIApplication sharedApplication];
-        __weak __typeof(self)weakSelf = self;
+        id<MXBackgroundModeHandler> handler = [MXSDKOptions sharedInstance].backgroundModeHandler;
+        if (handler && backgroundTaskIdentifier == [handler invalidIdentifier])
+        {
+            __weak __typeof(self)weakSelf = self;
+            backgroundTaskIdentifier = [handler startBackgroundTaskWithName:nil completion:^{
 
-        backgroundTaskIdentifier = [application beginBackgroundTaskWithExpirationHandler:^{
+                NSLog(@"[MXHTTPClient] Background task #%tu is going to expire - Try to end it",
+                      backgroundTaskIdentifier);
 
-            __strong __typeof(weakSelf)strongSelf = weakSelf;
-            if (strongSelf)
-            {
-                // Cancel all the tasks currently run by the managed session
-                NSArray *tasks = httpManager.tasks;
-                for (NSURLSessionTask *sessionTask in tasks)
+                __strong __typeof(weakSelf)strongSelf = weakSelf;
+                if (strongSelf)
                 {
-                    [sessionTask cancel];
+                    // Cancel all the tasks currently run by the managed session
+                    NSArray *tasks = httpManager.tasks;
+                    for (NSURLSessionTask *sessionTask in tasks)
+                    {
+                        [sessionTask cancel];
+                    }
+
+                    [strongSelf cleanupBackgroundTask];
                 }
-                
-                [strongSelf cleanupBackgroundTask];
-            }
-        }];
+            }];
+
+            NSLog(@"[MXHTTPClient] Background task #%tu started", backgroundTaskIdentifier);
+        }
     }
 }
+
 
 /**
  End the background task.
@@ -534,11 +545,33 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
  */
 - (void)cleanupBackgroundTask
 {
-    if (backgroundTaskIdentifier != UIBackgroundTaskInvalid && httpManager.tasks.count == 0)
+    NSLog(@"[MXHTTPClient] cleanupBackgroundTask");
+
+    @synchronized(self)
     {
-        [[UIApplication sharedApplication] endBackgroundTask:backgroundTaskIdentifier];
-        backgroundTaskIdentifier = UIBackgroundTaskInvalid;
+        id<MXBackgroundModeHandler> handler = [MXSDKOptions sharedInstance].backgroundModeHandler;
+        if (handler && backgroundTaskIdentifier != [handler invalidIdentifier] && httpManager.tasks.count == 0)
+        {
+            NSLog(@"[MXHTTPClient] Background task #%tu is complete",
+                  backgroundTaskIdentifier);
+
+            [handler endBackgrounTaskWithIdentifier:backgroundTaskIdentifier];
+            backgroundTaskIdentifier = [handler invalidIdentifier];
+        }
     }
+}
+
+- (void)setPinnedCertificates:(NSSet<NSData *> *)pinnedCertificates
+{
+    _pinnedCertificates = pinnedCertificates;
+    if (!pinnedCertificates.count)
+    {
+        [self setDefaultSecurityPolicy];
+        return;
+    }
+    AFSecurityPolicy *securityPolicy = [AFSecurityPolicy policyWithPinningMode:AFSSLPinningModeCertificate];
+    securityPolicy.pinnedCertificates = pinnedCertificates;
+    httpManager.securityPolicy = securityPolicy;
 }
 
 
@@ -551,20 +584,26 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
 
 - (void)setUpNetworkReachibility
 {
+    AFNetworkReachabilityManager *networkReachabilityManager = [AFNetworkReachabilityManager sharedManager];
+    
     // Start monitoring reachibility to get its status and change notifications
-    [[AFNetworkReachabilityManager sharedManager] startMonitoring];
+    [networkReachabilityManager startMonitoring];
 
     reachabilityObservers = [NSMutableArray array];
-
-    AFNetworkReachabilityManager *networkReachabilityManager = [AFNetworkReachabilityManager sharedManager];
-
+    
+    __weak typeof(self) weakSelf = self;
     reachabilityObserver = [[NSNotificationCenter defaultCenter] addObserverForName:AFNetworkingReachabilityDidChangeNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
 
-        if (networkReachabilityManager.isReachable && reachabilityObservers.count)
+        if (weakSelf)
         {
-            // Start retrying request one by one to keep messages order
-            NSLog(@"[MXHTTPClient] Network is back. Wake up %tu observers.", reachabilityObservers.count);
-            [self wakeUpNextReachabilityServer];
+            __strong typeof(weakSelf) self = weakSelf;
+
+            if (networkReachabilityManager.isReachable && self->reachabilityObservers.count)
+            {
+                // Start retrying request one by one to keep messages order
+                NSLog(@"[MXHTTPClient] Network is back. Wake up %tu observers.", self->reachabilityObservers.count);
+                [self wakeUpNextReachabilityServer];
+            }
         }
     }];
 }
@@ -633,9 +672,9 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
                             if (strongSelf->onUnrecognizedCertificateBlock(certifData))
                             {
                                 NSLog(@"[MXHTTPClient] Yes, the user trusts its certificate");
-
-                                _allowedCertificate = certifData;
-
+                                
+                                strongSelf->_allowedCertificate = certifData;
+                                
                                 // Update http manager security policy with this trusted certificate.
                                 AFSecurityPolicy *securityPolicy = [AFSecurityPolicy policyWithPinningMode:AFSSLPinningModeCertificate];
                                 securityPolicy.pinnedCertificates = [NSSet setWithObjects:certifData, nil];
@@ -667,6 +706,19 @@ NSString * const MXHTTPClientErrorResponseDataKey = @"com.matrixsdk.httpclient.e
 
         return NSURLSessionAuthChallengePerformDefaultHandling;
     }];
+}
+
+- (void)setDefaultSecurityPolicy
+{
+    // If some certificates are included in app bundle, we enable the AFNetworking pinning mode based on certificate 'AFSSLPinningModeCertificate'.
+    // These certificates will be handled as pinned certificates, the app allows them without prompting the user.
+    // This is an additional option for the developer to handle certificates.
+    AFSecurityPolicy *securityPolicy = [AFSecurityPolicy policyWithPinningMode:AFSSLPinningModeCertificate];
+    if (securityPolicy.pinnedCertificates.count)
+    {
+        securityPolicy.allowInvalidCertificates = YES;
+        httpManager.securityPolicy = securityPolicy;
+    }
 }
 
 @end

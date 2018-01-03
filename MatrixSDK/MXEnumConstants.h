@@ -16,6 +16,8 @@
 
 #import <Foundation/Foundation.h>
 
+
+
 /**
  The file defines contants, enums and typdefs that are used from different classes
  of the SDK.
@@ -26,7 +28,7 @@
  Room visibility in the current homeserver directory.
  The default homeserver value is private.
  */
-typedef NSString* MXRoomDirectoryVisibility;
+typedef NSString* MXRoomDirectoryVisibility NS_REFINED_FOR_SWIFT;
 
 /**
  The room is not listed in the homeserver directory.
@@ -45,7 +47,7 @@ FOUNDATION_EXPORT NSString *const kMXRoomDirectoryVisibilityPublic;
  joined.
  The default homeserver value is shared.
  */
-typedef NSString* MXRoomHistoryVisibility;
+typedef NSString* MXRoomHistoryVisibility NS_REFINED_FOR_SWIFT;
 
 /**
  All events while this is the m.room.history_visibility value may be shared by any
@@ -79,7 +81,7 @@ FOUNDATION_EXPORT NSString *const kMXRoomHistoryVisibilityJoined;
  Room join rule.
  The default homeserver value is invite.
  */
-typedef NSString* MXRoomJoinRule;
+typedef NSString* MXRoomJoinRule NS_REFINED_FOR_SWIFT;
 
 /**
  Anyone can join the room without any prior action.
@@ -102,7 +104,7 @@ FOUNDATION_EXPORT NSString *const kMXRoomJoinRuleKnock;
  Room presets
  Define a set of state events applied during a new room creation.
  */
-typedef NSString* MXRoomPreset;
+typedef NSString* MXRoomPreset NS_REFINED_FOR_SWIFT;
 
 /**
  join_rules is set to invite. history_visibility is set to shared.
@@ -123,7 +125,7 @@ FOUNDATION_EXPORT NSString *const kMXRoomPresetPublicChat;
  Room guest access.
  The default homeserver value is forbidden.
  */
-typedef NSString* MXRoomGuestAccess;
+typedef NSString* MXRoomGuestAccess NS_REFINED_FOR_SWIFT;
 
 /**
  Guests can join the room.
@@ -154,10 +156,41 @@ typedef enum : NSUInteger
     // Backwards when the event is added to the start of the timeline.
     // These events come from a back pagination.
     MXTimelineDirectionBackwards
-} MXTimelineDirection;
+} MXTimelineDirection NS_REFINED_FOR_SWIFT;
 
 /**
  The matrix.to base URL.
  */
 FOUNDATION_EXPORT NSString *const kMXMatrixDotToUrl;
+
+
+#pragma mark - Google Analytics
+
+/**
+ Timing stats relative to app startup.
+ */
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupCategory;
+
+// Duration of the initial /sync request
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupInititialSync;
+
+// Duration of the first /sync when resuming the app
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupIncrementalSync;
+
+// Time to preload data in the MXStore
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupStorePreload;
+
+// Time to mount all objects from the store (it includes kMXGoogleAnalyticsStartupStorePreload time)
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupMountData;
+
+// Duration of the the display of the app launch screen
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStartupLaunchScreen;
+
+/**
+ Overall stats category.
+ */
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStatsCategory;
+
+// The number of room the user is in
+FOUNDATION_EXPORT NSString *const kMXGoogleAnalyticsStatsRooms;
 

@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -44,12 +45,12 @@
  Indicate if this instance is used to store the live state of the room or
  the state of the room in the history.
  */
-@property (nonatomic, readonly) BOOL isLive;
+@property (nonatomic) BOOL isLive;
 
 /**
  A copy of the list of state events (actually MXEvent instances).
  */
-@property (nonatomic, readonly) NSArray *stateEvents;
+@property (nonatomic, readonly) NSArray<MXEvent *> *stateEvents;
 
 /**
  A copy of the list of room members.
@@ -74,7 +75,7 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
 /**
  The aliases of this room.
  */
-@property (nonatomic, readonly) NSArray *aliases;
+@property (nonatomic, readonly) NSArray<NSString *> *aliases;
 
 /**
  Informs which alias is the canonical one.
@@ -99,12 +100,12 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
 /**
  The history visibility of the room.
  */
-@property (nonatomic, readonly) MXRoomHistoryVisibility historyVisibility;
+@property (nonatomic, readonly) MXRoomHistoryVisibility historyVisibility NS_REFINED_FOR_SWIFT;
 
 /**
  The join rule of the room.
  */
-@property (nonatomic, readonly) MXRoomJoinRule joinRule;
+@property (nonatomic, readonly) MXRoomJoinRule joinRule NS_REFINED_FOR_SWIFT;
 
 /**
  Shortcut to check if the self.joinRule is public.
@@ -114,7 +115,7 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
 /**
  The guest access of the room.
  */
-@property (nonatomic, readonly) MXRoomGuestAccess guestAccess;
+@property (nonatomic, readonly) MXRoomGuestAccess guestAccess NS_REFINED_FOR_SWIFT;
 
 /**
  The display name of the room.
@@ -128,7 +129,7 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
  If the membership is `invite`, the room state contains few information.
  Join the room with [MXRoom join] to get full information about the room.
  */
-@property (nonatomic, readonly) MXMembership membership;
+@property (nonatomic, readonly) MXMembership membership NS_REFINED_FOR_SWIFT;
 
 /**
  Indicate whether encryption is enabled for this room.
@@ -189,12 +190,12 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
 - (void)handleStateEvent:(MXEvent*)event;
 
 /**
- Return the state event with the given type.
+ Return the state events with the given type.
  
  @param eventType the type of event.
- @return the state event. Can be nil.
+ @return the state events. Can be nil.
  */
-- (MXEvent*)stateEventWithType:(MXEventTypeString)eventType;
+- (NSArray<MXEvent*> *)stateEventsWithType:(MXEventTypeString)eventType NS_REFINED_FOR_SWIFT;
 
 /**
  Return the member with the given user id.
@@ -284,5 +285,4 @@ A copy of the list of third party invites (actually MXRoomThirdPartyInvite insta
  @return an array of MXRoomMember objects.
  */
 - (NSArray<MXRoomMember*>*)membersWithMembership:(MXMembership)membership includeConferenceUser:(BOOL)includeConferenceUser;
-
 @end

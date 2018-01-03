@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -482,7 +483,7 @@
 
             MXRoom *room = [mxSession roomWithRoomId:roomId];
 
-            XCTAssertEqualObjects(room.state.guestAccess, kMXRoomGuestAccessForbidden, @"The default room guest access should be forbidden");
+            XCTAssertEqualObjects(room.state.guestAccess, kMXRoomGuestAccessCanJoin, @"The default room guest access should be forbidden");
 
             // Listen to live event. We should receive only one: a m.room.name event
             [room.liveTimeline listenToEventsOfTypes:nil onEvent:^(MXEvent *event, MXTimelineDirection direction, MXRoomState *roomState) {
@@ -490,14 +491,14 @@
                 XCTAssertEqual(event.eventType, MXEventTypeRoomGuestAccess);
 
                 XCTAssertNotNil(room.state.guestAccess);
-                XCTAssertEqualObjects(room.state.guestAccess, kMXRoomGuestAccessCanJoin, @"The room guest access is wrong");
+                XCTAssertEqualObjects(room.state.guestAccess, kMXRoomGuestAccessForbidden, @"The room guest access is wrong");
 
                 [expectation fulfill];
 
             }];
 
             // Change the guest access
-            [room setGuestAccess:kMXRoomGuestAccessCanJoin success:^{
+            [room setGuestAccess:kMXRoomGuestAccessForbidden success:^{
 
             } failure:^(NSError *error) {
                 XCTFail(@"The request should not fail - NSError: %@", error);
@@ -745,7 +746,7 @@
  5 - Bob invites Alice
  6 - Bob: "I wait for Alice"
  */
-- (void)createInviteByUserScenario:(MXRestClient*)bobRestClient inRoom:(NSString*)roomId inviteAlice:(BOOL)inviteAlice expectation:(XCTestExpectation*)expectation onComplete:(void(^)())onComplete
+- (void)createInviteByUserScenario:(MXRestClient*)bobRestClient inRoom:(NSString*)roomId inviteAlice:(BOOL)inviteAlice expectation:(XCTestExpectation*)expectation onComplete:(void(^)(void))onComplete
 {
     [bobRestClient sendTextMessageToRoom:roomId text:@"Hello world" success:^(NSString *eventId) {
 
@@ -825,7 +826,7 @@
                     XCTAssert([alice.originUserId isEqualToString:bobRestClient.credentials.userId], @"Wrong inviter: %@", alice.originUserId);
                     
                     // The last message should be an invite m.room.member
-                    MXEvent *lastMessage = [newRoom lastMessageWithTypeIn:nil];
+                    MXEvent *lastMessage = newRoom.summary.lastMessageEvent;
                     XCTAssertEqual(lastMessage.eventType, MXEventTypeRoomMember, @"The last message should be an invite m.room.member");
                     XCTAssertLessThan([[NSDate date] timeIntervalSince1970] * 1000 - lastMessage.originServerTs, 3000);
                     
@@ -876,9 +877,14 @@
                             XCTAssert([alice.originUserId isEqualToString:bobRestClient.credentials.userId], @"Wrong inviter: %@", alice.originUserId);
 
                             // The last message should be an invite m.room.member
-                            MXEvent *lastMessage = [newRoom lastMessageWithTypeIn:nil];
-                            XCTAssertEqual(lastMessage.eventType, MXEventTypeRoomMember, @"The last message should be an invite m.room.member");
-                            XCTAssertLessThan([[NSDate date] timeIntervalSince1970] * 1000 - lastMessage.originServerTs, 3000);
+                            dispatch_async(dispatch_get_main_queue(), ^{    // We could also wait for kMXRoomSummaryDidChangeNotification
+
+                                MXEvent *lastMessage = newRoom.summary.lastMessageEvent;
+                                XCTAssertNotNil(lastMessage);
+                                XCTAssertEqual(lastMessage.eventType, MXEventTypeRoomMember, @"The last message should be an invite m.room.member");
+                                XCTAssertLessThan([[NSDate date] timeIntervalSince1970] * 1000 - lastMessage.originServerTs, 3000);
+
+                            });
                         }
                     }
                     
@@ -947,8 +953,11 @@
                         XCTAssert([newRoom.state.topic isEqualToString:@"We test room invitation here"], @"Wrong topic. Found: %@", newRoom.state.topic);
                         
                         XCTAssertEqual(newRoom.state.membership, MXMembershipJoin);
+
+                        XCTAssertNotNil(newRoom.summary.lastMessageEventId);
+                        XCTAssertNotNil(newRoom.summary.lastMessageEvent);
                         
-                        XCTAssertEqual([newRoom lastMessageWithTypeIn:nil].eventType, MXEventTypeRoomMember, @"The last should be a m.room.member event indicating Alice joining the room");
+                        XCTAssertEqual(newRoom.summary.lastMessageEvent.eventType, MXEventTypeRoomMember, @"The last should be a m.room.member event indicating Alice joining the room");
                         
                         [expectation fulfill];
                         
@@ -999,8 +1008,8 @@
                         XCTAssert([newRoom.state.topic isEqualToString:@"We test room invitation here"], @"Wrong topic. Found: %@", newRoom.state.topic);
                         
                         XCTAssertEqual(newRoom.state.membership, MXMembershipJoin);
-                        
-                        XCTAssertEqual([newRoom lastMessageWithTypeIn:nil].eventType, MXEventTypeRoomMember, @"The last should be a m.room.member event indicating Alice joining the room");
+                        XCTAssertNotNil(newRoom.summary.lastMessageEvent);
+                        XCTAssertEqual(newRoom.summary.lastMessageEvent.eventType, MXEventTypeRoomMember, @"The last should be a m.room.member event indicating Alice joining the room");
                         
                         [expectation fulfill];
                         

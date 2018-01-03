@@ -1,5 +1,6 @@
 /*
  Copyright 2015 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -21,6 +22,16 @@
 @interface MXPushRuleDisplayNameCondtionChecker ()
 {
     MXSession *mxSession;
+    
+    /**
+     Regex for finding the user's display name in events content.
+     */
+    NSRegularExpression *userNameRegex;
+    
+    /**
+     The user display name used to build the regex.
+     */
+    NSString *currentUserName;
 }
 
 @end
@@ -33,6 +44,7 @@
     if (self)
     {
         mxSession = mxSession2;
+        currentUserName = nil;
     }
     return self;
 }
@@ -44,7 +56,8 @@
     // If it exists, search for the current display name in the content body with case insensitive
     if (mxSession.myUser.displayname && event.content)
     {
-        NSObject* bodyAsVoid = event.content[@"body"];
+        NSObject* bodyAsVoid;
+        MXJSONModelSet(bodyAsVoid, NSObject.class, event.content[@"body"]);
         
         if (bodyAsVoid && [bodyAsVoid isKindOfClass:[NSString class]])
         {
@@ -52,7 +65,14 @@
             
             if (body)
             {
-                if (NSNotFound != [body rangeOfString:mxSession.myUser.displayname options:NSCaseInsensitiveSearch].location)
+                if (!userNameRegex || ![currentUserName isEqualToString:mxSession.myUser.displayname])
+                {
+                    userNameRegex = [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"(^|\\W)\\Q%@\\E($|\\W)", mxSession.myUser.displayname] options:NSRegularExpressionCaseInsensitive error:nil];
+                    currentUserName = mxSession.myUser.displayname;
+                }
+
+                NSRange range = [userNameRegex rangeOfFirstMatchInString:body options:0 range:NSMakeRange(0, body.length)];
+                if (range.length)
                 {
                     isSatisfied = YES;
                 }

@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -14,27 +15,28 @@
  limitations under the License.
  */
 
-#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
 
 /**
  The Matrix iOS SDK version.
  */
 FOUNDATION_EXPORT NSString *MatrixSDKVersion;
 
-#import <MatrixSDK/MXRestClient.h>
-#import <MatrixSDK/MXSession.h>
-#import <MatrixSDK/MXError.h>
+#import "MXRestClient.h"
+#import "MXSession.h"
+#import "MXError.h"
 
-#import <MatrixSDK/MXStore.h>
-#import <MatrixSDK/MXNoStore.h>
-#import <MatrixSDK/MXMemoryStore.h>
-#import <MatrixSDK/MXFileStore.h>
-#import <MatrixSDK/MXCoreDataStore.h>
+#import "MXStore.h"
+#import "MXNoStore.h"
+#import "MXMemoryStore.h"
+#import "MXFileStore.h"
 
-#import <MatrixSDK/MXEventsEnumeratorOnArray.h>
-#import <MatrixSDK/MXEventsByTypesEnumeratorOnArray.h>
+#import "MXRoomSummaryUpdater.h"
 
-#import <MatrixSDK/MXLogger.h>
+#import "MXEventsEnumeratorOnArray.h"
+#import "MXEventsByTypesEnumeratorOnArray.h"
+
+#import "MXLogger.h"
 
 #import "MXTools.h"
 #import "NSData+MatrixSDK.h"
@@ -44,3 +46,13 @@ FOUNDATION_EXPORT NSString *MatrixSDKVersion;
 #import "MXMediaManager.h"
 
 #import "MXLRUCache.h"
+
+#import "MXCallStack.h"
+
+#import "MXCrypto.h"
+#import "MXMegolmExportEncryption.h"
+
+#import "MXBugReportRestClient.h"
+
+#import "MXCallKitAdapter.h"
+#import "MXCallKitConfiguration.h"

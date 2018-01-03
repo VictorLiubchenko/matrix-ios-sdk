@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -23,6 +24,7 @@
 
 // The URL of your test home server
 FOUNDATION_EXPORT NSString * const kMXTestsHomeServerURL;
+FOUNDATION_EXPORT NSString * const kMXTestsHomeServerHttpsURL;
 
 // Alice has a displayname and an avatar
 FOUNDATION_EXPORT NSString * const kMXTestsAliceDisplayName;
@@ -43,7 +45,7 @@ FOUNDATION_EXPORT NSString * const kMXTestsAliceAvatarURL;
 
 // Get credentials asynchronously
 // The user will be created if needed
-- (void)getBobCredentials:(void (^)())success;
+- (void)getBobCredentials:(void (^)(void))success;
 
 // Prepare a test with a MXRestClient for mxBob so that we can make test on it
 - (void)doMXRestClientTestWithBob:(XCTestCase*)testCase
@@ -83,6 +85,10 @@ FOUNDATION_EXPORT NSString * const kMXTestsAliceAvatarURL;
 - (void)doMXSessionTestWithBob:(XCTestCase*)testCase andStore:(id<MXStore>)store
                    readyToTest:(void (^)(MXSession *mxSession, XCTestExpectation *expectation))readyToTest;
 
+- (void)doMXSessionTestWithBobAndARoom:(XCTestCase*)testCase andStore:(id<MXStore>)store
+                   readyToTest:(void (^)(MXSession *mxSession, MXRoom *room, XCTestExpectation *expectation))readyToTest;
+
+
 #pragma mark - mxAlice
 @property (nonatomic, readonly) MXCredentials *aliceCredentials;
 
@@ -107,11 +113,24 @@ FOUNDATION_EXPORT NSString * const kMXTestsAliceAvatarURL;
                                   readyToTest:(void (^)(MXSession *bobSession,  MXRestClient *aliceRestClient, NSString* roomId, XCTestExpectation *expectation))readyToTest;
 
 
-#pragma mark - tools
+#pragma mark - HTTPS mxBob
+- (void)getHttpsBobCredentials:(void (^)(void))success;
+- (void)getHttpsBobCredentials:(void (^)(void))success onUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock;
 
+- (void)doHttpsMXRestClientTestWithBob:(XCTestCase*)testCase
+                           readyToTest:(void (^)(MXRestClient *bobRestClient, XCTestExpectation *expectation))readyToTest;
+- (void)doHttpsMXSessionTestWithBob:(XCTestCase*)testCase
+                        readyToTest:(void (^)(MXSession *mxSession, XCTestExpectation *expectation))readyToTest;
+
+
+#pragma mark - tools
+// Logout the user on the server and log the user in with a new device
 - (void)relogUserSession:(MXSession*)session withPassword:(NSString*)password onComplete:(void (^)(MXSession *newSession))onComplete;
 
-- (void)for:(MXRestClient *)mxRestClient2 andRoom:(NSString*)roomId sendMessages:(NSUInteger)messagesCount success:(void (^)())success;
+// Close the current session by erasing the crypto to store  and log the user in with a new device
+- (void)relogUserSessionWithNewDevice:(MXSession*)session withPassword:(NSString*)password onComplete:(void (^)(MXSession *newSession))onComplete;
+
+- (void)for:(MXRestClient *)mxRestClient2 andRoom:(NSString*)roomId sendMessages:(NSUInteger)messagesCount success:(void (^)(void))success;
 
 // Close the session
 // Before closing, it checks if the session must be cleaning.

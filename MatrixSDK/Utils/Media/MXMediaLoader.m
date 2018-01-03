@@ -19,6 +19,9 @@
 #import "MXSession.h"
 #import "MXHTTPOperation.h"
 
+#import "MXAllowedCertificates.h"
+#import <AFNetworking/AFSecurityPolicy.h>
+
 NSString *const kMXMediaDownloadProgressNotification = @"kMXMediaDownloadProgressNotification";
 NSString *const kMXMediaDownloadDidFinishNotification = @"kMXMediaDownloadDidFinishNotification";
 NSString *const kMXMediaDownloadDidFailNotification = @"kMXMediaDownloadDidFailNotification";
@@ -221,6 +224,88 @@ NSString *const kMXMediaUploadIdPrefix = @"upload-";
     
     downloadData = nil;
     downloadConnection = nil;
+}
+
+#pragma mark - NSURLConnectionDelegate
+
+- (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    NSURLProtectionSpace *protectionSpace = [challenge protectionSpace];
+    if ([protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust])
+    {
+        // List all the allowed certificates to pin against.
+        NSMutableArray *pinnedCertificates = [NSMutableArray array];
+        
+        NSSet <NSData *> *certificates = [AFSecurityPolicy certificatesInBundle:[NSBundle mainBundle]];
+        for (NSData *certificateData in certificates)
+        {
+            [pinnedCertificates addObject:(__bridge_transfer id)SecCertificateCreateWithData(NULL, (__bridge CFDataRef)certificateData)];
+        }
+        certificates = [MXAllowedCertificates sharedInstance].certificates;
+        for (NSData *certificateData in certificates)
+        {
+            [pinnedCertificates addObject:(__bridge_transfer id)SecCertificateCreateWithData(NULL, (__bridge CFDataRef)certificateData)];
+        }
+        
+        if (pinnedCertificates.count > 0)
+        {
+            SecTrustSetAnchorCertificates(protectionSpace.serverTrust, (__bridge CFArrayRef)pinnedCertificates);
+            // Reenable trusting anchor certificates in addition to those passed in via the SecTrustSetAnchorCertificates API.
+            SecTrustSetAnchorCertificatesOnly(protectionSpace.serverTrust, false);
+        }
+        
+        SecTrustRef trust = [protectionSpace serverTrust];
+
+        // Re-evaluate the trust policy
+        SecTrustResultType secresult = kSecTrustResultInvalid;
+        if (SecTrustEvaluate(trust, &secresult) != errSecSuccess)
+        {
+            // Trust evaluation failed
+            [connection cancel];
+
+            // Generate same kind of error as AFNetworking
+            NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:kCFURLErrorCancelled userInfo:nil];
+            [self connection:connection didFailWithError:error];
+        }
+        else
+        {
+            switch (secresult)
+            {
+                case kSecTrustResultUnspecified:    // The OS trusts this certificate implicitly.
+                case kSecTrustResultProceed:        // The user explicitly told the OS to trust it.
+                {
+                    NSURLCredential *credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+                    [challenge.sender useCredential:credential forAuthenticationChallenge:challenge];
+                    break;
+                }
+
+                default:
+                {
+                    // Consider here the leaf certificate (the one at index 0).
+                    SecCertificateRef certif = SecTrustGetCertificateAtIndex(trust, 0);
+
+                    NSData *certificate = (__bridge NSData*)SecCertificateCopyData(certif);
+
+                    // Was it already trusted by the user ?
+                    if ([[MXAllowedCertificates sharedInstance] isCertificateAllowed:certificate])
+                    {
+                        NSURLCredential *credential = [NSURLCredential credentialForTrust:protectionSpace.serverTrust];
+                        [[challenge sender] useCredential:credential forAuthenticationChallenge:challenge];
+                    }
+                    else
+                    {
+                        NSLog(@"[MXMediaLoader] Certificate check failed for %@", protectionSpace);
+                        [connection cancel];
+
+                        // Generate same kind of error as AFNetworking
+                        NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:kCFURLErrorCancelled userInfo:nil];
+                        [self connection:connection didFailWithError:error];
+                    }
+                    break;
+                }
+            }
+        }
+    }
 }
 
 #pragma mark - Upload

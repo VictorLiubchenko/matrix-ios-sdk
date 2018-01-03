@@ -13,13 +13,15 @@
  See the License for the specific language governing permissions and
  limitations under the License.
  */
-#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
 
-#import "MXJingleCallStack.h"
+#import "MXSDKOptions.h"
 
 #ifdef MX_CALL_STACK_JINGLE
 
-#import <WebRTC/WebRTC.h>
+#import <WebRTC/RTCEAGLVideoView.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 /**
  `MXJingleVideoView` is responsible for rendering RTCEAGLVideoView into
@@ -29,8 +31,13 @@
  */
 @interface MXJingleVideoView : RTCEAGLVideoView <RTCEAGLVideoViewDelegate>
 
-- (instancetype)initWithContainerView:(UIView*)containerView;
+- (instancetype)initWithContainerView:(UIView *)containerView NS_DESIGNATED_INITIALIZER;
+
++ (instancetype)new NS_UNAVAILABLE;
+- (instancetype)init NS_UNAVAILABLE;
 
 @end
+
+NS_ASSUME_NONNULL_END
 
 #endif  //MX_CALL_STACK_JINGLE

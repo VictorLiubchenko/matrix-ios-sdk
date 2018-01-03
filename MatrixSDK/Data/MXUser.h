@@ -17,7 +17,6 @@
 #import <Foundation/Foundation.h>
 
 #import "MXJSONModels.h"
-#import <UIKit/UIKit.h>
 
 @class MXSession;
 @class MXEvent;
@@ -26,7 +25,7 @@
 /**
  `MXUser` represents a user in Matrix.
  */
-@interface MXUser : NSObject <NSCoding, NSCopying>
+@interface MXUser : MXJSONModel <NSCoding, NSCopying>
 {
     // Let property members accessible to children classes
     NSString *_displayname;
@@ -95,7 +94,7 @@
 /**
  Update the MXUser data with a m.presence event.
  
- @param roomMemberEvent The event.
+ @param presenceEvent the presence event.
  @param mxSession the mxSession to the home server.
  */
 - (void)updateWithPresenceEvent:(MXEvent*)presenceEvent inMatrixSession:(MXSession*)mxSession;
@@ -107,7 +106,7 @@
  @param success a block when the operation succeeds.
  @param failure a block when the operation fails.
  */
-- (void)updateFromHomeserverOfMatrixSession:(MXSession*)mxSession success:(void (^)())success failure:(void (^)(NSError *error))failure;
+- (void)updateFromHomeserverOfMatrixSession:(MXSession*)mxSession success:(void (^)(void))success failure:(void (^)(NSError *error))failure;
 
 
 #pragma mark - Events listeners
@@ -121,7 +120,7 @@ typedef void (^MXOnUserUpdate)(MXEvent *event);
 /**
  Register a listener to be notified on change of this user data.
  
- @param onEvent the block that will called once a new event has been handled.
+ @param onUserUpdate the block that will called once a new event has been handled.
  @return a reference to use to unregister the listener
  */
 - (id)listenToUserUpdate:(MXOnUserUpdate)onUserUpdate;

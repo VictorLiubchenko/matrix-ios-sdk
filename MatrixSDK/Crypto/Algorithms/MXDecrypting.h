@@ -16,10 +16,13 @@
 
 #import <Foundation/Foundation.h>
 
+#import "MXHTTPOperation.h"
 #import "MXEvent.h"
 #import "MXDecryptionResult.h"
+#import "MXEventDecryptionResult.h"
+#import "MXIncomingRoomKeyRequest.h"
 
-@class MXCrypto;
+@class MXCrypto, MXMegolmSessionData;
 
 
 @protocol MXDecrypting <NSObject>
@@ -40,10 +43,11 @@
  @param event the raw event.
  @param timeline the id of the timeline where the event is decrypted. It is used
                  to prevent replay attack.
+ @param error the result error if there is a problem decrypting the event.
 
- @return YES if the decryption was successful.
+ @return The decryption result. Nil if it failed.
  */
-- (BOOL)decryptEvent:(MXEvent*)event inTimeline:(NSString*)timeline;
+- (MXEventDecryptionResult *)decryptEvent:(MXEvent*)event inTimeline:(NSString*)timeline error:(NSError** )error;
 
 /**
  * Handle a key event.
@@ -52,4 +56,32 @@
  */
 - (void)onRoomKeyEvent:(MXEvent*)event;
 
+/**
+ Import a room key.
+
+ @param session the session data to import.
+ */
+- (void)importRoomKey:(MXMegolmSessionData*)session;
+
+/**
+ Determine if we have the keys necessary to respond to a room key request.
+
+ @param keyRequest the key request.
+ @return YES if we have the keys and could (theoretically) share them; else NO.
+ */
+- (BOOL)hasKeysForKeyRequest:(MXIncomingRoomKeyRequest*)keyRequest;
+
+/**
+ Send the response to a room key request.
+
+ @param keyRequest the key request.
+
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)shareKeysWithDevice:(MXIncomingRoomKeyRequest*)keyRequest
+                                success:(void (^)())success
+                                failure:(void (^)(NSError *error))failure;
 @end

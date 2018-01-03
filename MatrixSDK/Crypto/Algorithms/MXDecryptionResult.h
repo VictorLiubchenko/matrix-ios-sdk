@@ -24,7 +24,7 @@ typedef enum : NSUInteger
     MXDecryptingErrorUnableToEncryptCode,
     MXDecryptingErrorUnableToDecryptCode,
     MXDecryptingErrorOlmCode,
-    MXDecryptingErrorUnkwnownInboundSessionIdCode,
+    MXDecryptingErrorUnknownInboundSessionIdCode,
     MXDecryptingErrorInboundSessionMismatchRoomIdCode,
     MXDecryptingErrorMissingFieldsCode,
     MXDecryptingErrorMissingCiphertextCode,
@@ -45,7 +45,7 @@ FOUNDATION_EXPORT NSString* const MXDecryptingErrorUnableToDecrypt;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorUnableToDecryptReason;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorOlm;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorOlmReason;
-FOUNDATION_EXPORT NSString* const MXDecryptingErrorUnkwnownInboundSessionIdReason;
+FOUNDATION_EXPORT NSString* const MXDecryptingErrorUnknownInboundSessionIdReason;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorInboundSessionMismatchRoomIdReason;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorMissingFieldsReason;
 FOUNDATION_EXPORT NSString* const MXDecryptingErrorMissingCiphertextReason;
@@ -75,9 +75,13 @@ FOUNDATION_EXPORT NSString* const MXDecryptingErrorMissingPropertyReason;
 @property (nonatomic) NSDictionary *keysClaimed;
 
 /**
- The keys that the sender of the event is known to have ownership of:
- map from key type to base64-encoded key.
+ The curve25519 key that the sender of the event is known to have ownership of.
  */
-@property (nonatomic) NSDictionary *keysProved;
+@property (nonatomic) NSString *senderKey;
+
+/**
+ Devices which forwarded this session to us (normally empty).
+ */
+@property NSArray<NSString *> *forwardingCurve25519KeyChain;
 
 @end

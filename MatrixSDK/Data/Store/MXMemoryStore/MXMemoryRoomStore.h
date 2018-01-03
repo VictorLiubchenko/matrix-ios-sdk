@@ -1,5 +1,6 @@
 /*
  Copyright 2014 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -63,18 +64,6 @@
 @property (nonatomic) NSString *paginationToken;
 
 /**
- The current number of unread messages that match the push notification rules.
- It is based on the notificationCount field in /sync response.
- */
-@property (nonatomic) NSUInteger notificationCount;
-
-/**
- The current number of highlighted unread messages (subset of notifications).
- It is based on the notificationCount field in /sync response.
- */
-@property (nonatomic) NSUInteger highlightCount;
-
-/**
  The flag indicating that the SDK has reached the end of pagination
  in its pagination requests to the home server.
  */
@@ -96,12 +85,10 @@
  An optional array of event types may be provided to filter room events. When this array is not nil,
  the type of the returned last event should match with one of the provided types.
 
- @param roomId the id of the room.
  @param types an array of event types strings (MXEventTypeString).
- @param ignoreProfileChanges tell whether the profile changes should be ignored.
  @return the events enumerator.
  */
-- (id<MXEventsEnumerator>)enumeratorForMessagesWithTypeIn:(NSArray*)types ignoreMemberProfileChanges:(BOOL)ignoreProfileChanges;
+- (id<MXEventsEnumerator>)enumeratorForMessagesWithTypeIn:(NSArray*)types;
 
 /**
  Get all events newer than the event with the passed id.
@@ -120,7 +107,7 @@
 /**
  Store into the store an outgoing message event being sent in the room.
 
- @param event the MXEvent object of the message.
+ @param outgoingMessage the MXEvent object of the message.
  */
 - (void)storeOutgoingMessage:(MXEvent*)outgoingMessage;
 

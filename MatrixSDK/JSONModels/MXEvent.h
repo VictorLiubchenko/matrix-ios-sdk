@@ -16,6 +16,8 @@
 
 #import "MXJSONModel.h"
 
+@class MXEventDecryptionResult;
+
 /**
  Types of Matrix events
  
@@ -28,9 +30,10 @@
  */
 typedef enum : NSUInteger
 {
-    MXEventTypeRoomName,
+    MXEventTypeRoomName = 0,
     MXEventTypeRoomTopic,
     MXEventTypeRoomAvatar,
+    MXEventTypeRoomBotOptions,
     MXEventTypeRoomMember,
     MXEventTypeRoomCreate,
     MXEventTypeRoomJoinRules,
@@ -42,23 +45,27 @@ typedef enum : NSUInteger
     MXEventTypeRoomGuestAccess,
     MXEventTypeRoomHistoryVisibility,
     MXEventTypeRoomKey,
+    MXEventTypeRoomForwardedKey,
+    MXEventTypeRoomKeyRequest,
     MXEventTypeRoomMessage,
     MXEventTypeRoomMessageFeedback,
+    MXEventTypeRoomPlumbing,
     MXEventTypeRoomRedaction,
     MXEventTypeRoomThirdPartyInvite,
     MXEventTypeRoomTag,
     MXEventTypePresence,
     MXEventTypeTypingNotification,
-    MXEventTypeNewDevice,
+    MXEventTypeReceipt,
+    MXEventTypeRead,
+    MXEventTypeReadMarker,
     MXEventTypeCallInvite,
     MXEventTypeCallCandidates,
     MXEventTypeCallAnswer,
     MXEventTypeCallHangup,
-    MXEventTypeReceipt,
 
     // The event is a custom event. Refer to its `MXEventTypeString` version
     MXEventTypeCustom = 1000
-} MXEventType;
+} MXEventType NS_REFINED_FOR_SWIFT;
 
 /**
  Types of Matrix events - String version
@@ -68,6 +75,7 @@ typedef NSString* MXEventTypeString;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomName;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomTopic;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomAvatar;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomBotOptions;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomMember;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomCreate;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomJoinRules;
@@ -77,10 +85,13 @@ FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomCanonicalAlias;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomEncrypted;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomEncryption;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomGuestAccess;
-FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomKey;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomHistoryVisibility;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomKey;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomForwardedKey;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomKeyRequest;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomMessage;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomMessageFeedback;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomPlumbing;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomRedaction;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomThirdPartyInvite;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRoomTag;
@@ -88,7 +99,7 @@ FOUNDATION_EXPORT NSString *const kMXEventTypeStringPresence;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringTypingNotification;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringReceipt;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringRead;
-FOUNDATION_EXPORT NSString *const kMXEventTypeStringNewDevice;
+FOUNDATION_EXPORT NSString *const kMXEventTypeStringReadMarker;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringCallInvite;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringCallCandidates;
 FOUNDATION_EXPORT NSString *const kMXEventTypeStringCallAnswer;
@@ -97,7 +108,7 @@ FOUNDATION_EXPORT NSString *const kMXEventTypeStringCallHangup;
 /**
  Types of room messages
  */
-typedef NSString* MXMessageType;
+typedef NSString* MXMessageType NS_REFINED_FOR_SWIFT;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeText;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeEmote;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeNotice;
@@ -106,6 +117,11 @@ FOUNDATION_EXPORT NSString *const kMXMessageTypeAudio;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeVideo;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeLocation;
 FOUNDATION_EXPORT NSString *const kMXMessageTypeFile;
+
+/**
+ Prefix used for id of temporary local event.
+ */
+FOUNDATION_EXPORT NSString *const kMXEventLocalEventIdPrefix;
 
 /**
  Membership definitions
@@ -117,7 +133,7 @@ typedef enum : NSUInteger
     MXMembershipJoin,
     MXMembershipLeave,
     MXMembershipBan
-} MXMembership;
+} MXMembership NS_REFINED_FOR_SWIFT;
 
 /**
  The internal event state used to handle the different steps of the event sending.
@@ -129,6 +145,10 @@ typedef enum : NSUInteger
      The outgoing events switch into this state when their sending succeeds.
      */
     MXEventSentStateSent,
+    /**
+     The event is an outgoing event which is preparing by converting the data to sent, or uploading additional data.
+     */
+    MXEventSentStatePreparing,
     /**
      The event is an outgoing event which is encrypting.
      */
@@ -143,9 +163,10 @@ typedef enum : NSUInteger
     MXEventSentStateSending,
     /**
      The event is an outgoing event which failed to be sent.
+     See the `sentError` property to check the failure reason.
      */
     MXEventSentStateFailed
-    
+
 } MXEventSentState;
 
 /**
@@ -169,6 +190,16 @@ FOUNDATION_EXPORT uint64_t const kMXUndefinedTimestamp;
 FOUNDATION_EXPORT NSString *const kMXEventDidChangeSentStateNotification;
 
 /**
+ Posted when the MXEvent has updated its identifier.
+ This notification is triggered only for the temporary local events.
+ 
+ The `userInfo` dictionary contains the previous event identifier under the `kMXEventIdentifierKey` key.
+ 
+ The notification object is the MXEvent.
+ */
+FOUNDATION_EXPORT NSString *const kMXEventDidChangeIdentifierNotification;
+
+/**
  Posted when the MXEvent has been decrypted.
  
  The notification is sent for event that is received before the key to decrypt it.
@@ -176,6 +207,11 @@ FOUNDATION_EXPORT NSString *const kMXEventDidChangeSentStateNotification;
  The notification object is the MXEvent.
  */
 FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
+
+/**
+ Notifications `userInfo` keys
+ */
+extern NSString *const kMXEventIdentifierKey;
 
 
 /**
@@ -232,7 +268,7 @@ FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
  If the event is encrypted and the decryption failed (check 'decryptionError' property),
   'content' will remain encrypted.
  */
-@property (nonatomic, readonly) NSDictionary *content;
+@property (nonatomic, readonly) NSDictionary<NSString *, id> *content;
 
 /**
  The string event (possibly encrypted) type as provided by the homeserver.
@@ -256,12 +292,12 @@ FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
  Do not access this property directly unless you absolutely have to. Prefer to use the
  'content' property that manages decryption.
  */
-@property (nonatomic) NSDictionary *wireContent;
+@property (nonatomic) NSDictionary<NSString *, id> *wireContent;
 
 /**
  Optional. Contains the previous content for this event. If there is no previous content, this key will be missing.
  */
-@property (nonatomic) NSDictionary *prevContent;
+@property (nonatomic) NSDictionary<NSString *, id> *prevContent;
 
 /**
  Contains the state key for this state event. If there is no state key for this state event, this will be an empty
@@ -313,9 +349,19 @@ FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
 @property (nonatomic) NSArray<MXEvent *> *inviteRoomState;
 
 /**
+ In case of sending failure (MXEventSentStateFailed), the error that occured.
+ */
+@property (nonatomic) NSError *sentError;
+
+/**
  Indicates if the event hosts state data.
  */
 - (BOOL)isState;
+
+/**
+ Indicates if the event is a local one.
+ */
+- (BOOL)isLocalEvent;
 
 /**
  Indicates if the event has been redacted.
@@ -383,11 +429,9 @@ FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
  This is used after decrypting an event; it should not be used by applications.
  It fires kMXEventDidDecryptNotification.
 
- @param clearEvent the plaintext payload for the event.
- @param keysProved the keys owned by the sender of this event.
- @param keysClaimed the keys the sender of this event claims.
+ @param decryptionResult the decryption result, including the plaintext and some key info.
  */
-- (void)setClearData:(MXEvent*)clearEvent keysProved:(NSDictionary<NSString*, NSString*> *)keysProved keysClaimed:(NSDictionary<NSString*, NSString*> *)keysClaimed;
+- (void)setClearData:(MXEventDecryptionResult *)decryptionResult;
 
 /**
  For encrypted events, the plaintext payload for the event.
@@ -396,30 +440,56 @@ FOUNDATION_EXPORT NSString *const kMXEventDidDecryptNotification;
 @property (nonatomic, readonly) MXEvent *clearEvent;
 
 /**
- The keys that must have been owned by the sender of this encrypted event.
+ The curve25519 key for the device that we think sent this event.
 
- @discussion
- These don't necessarily have to come from this event itself, but may be
- implied by the cryptographic session.
+ For an Olm-encrypted event, this is inferred directly from the DH
+ exchange at the start of the session: the curve25519 key is involved in
+ the DH exchange, so only a device which holds the private part of that
+ key can establish such a session.
+
+ For a megolm-encrypted event, it is inferred from the Olm message which
+ established the megolm session
  */
-@property (nonatomic) NSDictionary<NSString*, NSString*> *keysProved;
+@property (nonatomic, readonly) NSString *senderKey;
 
 /**
  The additional keys the sender of this encrypted event claims to possess.
- 
- @discussion
- These don't necessarily have to come from this event itself, but may be
- implied by the cryptographic session.
- For example megolm messages don't claim keys directly, but instead
- inherit a claim from the olm message that established the session.
- The keys that must have been owned by the sender of this encrypted event.
+ Just a wrapper for `claimedEd25519Key` (q.v.)
  */
-@property (nonatomic) NSDictionary<NSString*, NSString*> *keysClaimed;
+@property (nonatomic, readonly) NSDictionary *keysClaimed;
 
 /**
- The curve25519 key that sent this event.
+ Get the ed25519 the sender of this event claims to own.
+
+ For Olm messages, this claim is encoded directly in the plaintext of the
+ event itself. For megolm messages, it is implied by the m.room_key event
+ which established the megolm session.
+
+ Until we download the device list of the sender, it's just a claim: the
+ device list gives a proof that the owner of the curve25519 key used for
+ this event (and returned by `senderKey`) also owns the ed25519 key by
+ signing the public curve25519 key with the ed25519 key.
+
+ In general, applications should not use this method directly, but should
+ instead use [MXCrypto eventDeviceInfo:].
  */
-@property (nonatomic, readonly) NSString *senderKey;
+@property (nonatomic, readonly) NSString *claimedEd25519Key;
+
+/**
+ Get the curve25519 keys of the devices which were involved in telling us
+ about the claimedEd25519Key and sender curve25519 key.
+
+ Normally this will be empty, but in the case of a forwarded megolm
+ session, the sender keys are sent to us by another device (the forwarding
+ device), which we need to trust to do this. In that case, the result will
+ be a list consisting of one entry.
+
+ If the device that sent us the key (A) got it from another device which
+ it wasn't prepared to vouch for (B), the result will be [A, B]. And so on.
+
+ @return base64-encoded curve25519 keys, from oldest to newest.
+ */
+@property (nonatomic, readonly) NSArray<NSString *> *forwardingCurve25519KeyChain;
 
 /**
  If any, the error that occured during decryption.

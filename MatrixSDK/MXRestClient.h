@@ -1,5 +1,6 @@
 /*
  Copyright 2014 OpenMarket Ltd
+ Copyright 2017 Vector Creations Ltd
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -15,7 +16,12 @@
  */
 
 #import <Foundation/Foundation.h>
+
+#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <Cocoa/Cocoa.h>
+#endif
 
 #import "MXHTTPClient.h"
 #import "MXEvent.h"
@@ -46,7 +52,7 @@ FOUNDATION_EXPORT NSString *const kMXIdentityAPIPrefixPath;
  */
 FOUNDATION_EXPORT NSString *const kMXContentUriScheme;
 /**
- Matrix content respository path.
+ A constant representing the prefix of the Matrix content repository path.
  */
 FOUNDATION_EXPORT NSString *const kMXContentPrefixPath;
 
@@ -115,14 +121,15 @@ typedef enum : NSUInteger
 
 /**
  The Client-Server API prefix to use.
- By default, it is '/_matrix/client/r0'. See kMXAPIPrefixPathR0 and kMXAPIPrefixPathUnstable for constants.
+ By default, it is '_matrix/client/r0'. See kMXAPIPrefixPathR0 and kMXAPIPrefixPathUnstable for constants.
  */
 @property (nonatomic) NSString *apiPathPrefix;
 
 /**
- Matrix content respository path.
+ The Matrix content repository prefix to use.
+ By default, it is defined by the constant kMXContentPrefixPath.
  */
-@property (nonatomic) NSString *contentPrefixPath;
+@property (nonatomic) NSString *contentPathPrefix;
 
 /**
  The identity server.
@@ -150,7 +157,7 @@ typedef enum : NSUInteger
  @param onUnrecognizedCertBlock the block called to handle unrecognized certificate (nil if unrecognized certificates are ignored).
  @return a MXRestClient instance.
  */
--(id)initWithHomeServer:(NSString *)homeserver andOnUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock;
+-(id)initWithHomeServer:(NSString *)homeserver andOnUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock NS_REFINED_FOR_SWIFT;
 
 /**
  Create an instance based on a matrix user account.
@@ -159,7 +166,7 @@ typedef enum : NSUInteger
  @param onUnrecognizedCertBlock the block called to handle unrecognized certificate (nil if unrecognized certificates are ignored).
  @return a MXRestClient instance.
  */
--(id)initWithCredentials:(MXCredentials*)credentials andOnUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock;
+-(id)initWithCredentials:(MXCredentials*)credentials andOnUnrecognizedCertificateBlock:(MXHTTPClientOnUnrecognizedCertificate)onUnrecognizedCertBlock NS_REFINED_FOR_SWIFT;
 
 - (void)close;
 
@@ -173,7 +180,7 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)isUserNameInUse:(NSString*)username
-                           callback:(void (^)(BOOL isUserNameInUse))callback;
+                           callback:(void (^)(BOOL isUserNameInUse))callback NS_REFINED_FOR_SWIFT;
 /**
  Get the list of register flows supported by the home server.
 
@@ -184,7 +191,7 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)getRegisterSession:(void (^)(MXAuthenticationSession *authSession))success
-                               failure:(void (^)(NSError *error))failure;
+                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Generic registration action request.
@@ -196,6 +203,10 @@ typedef enum : NSUInteger
 
  At the end of the registration process, the SDK user should be able to construct a MXCredentials object
  from the response of the last registration action request.
+ 
+ @note The caller may provide the device display name by adding @"initial_device_display_name" key
+ in the `parameters` dictionary. If the caller does not provide it, the device display name field
+ is filled with the device name.
 
  @param parameters the parameters required for the current registration stage
  @param success A block object called when the operation succeeds. It provides the raw JSON response
@@ -206,7 +217,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)registerWithParameters:(NSDictionary*)parameters
                                    success:(void (^)(NSDictionary *JSONResponse))success
-                                   failure:(void (^)(NSError *error))failure;
+                                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Register a user.
@@ -223,15 +234,41 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)registerWithLoginType:(NSString*)loginType username:(NSString*)username password:(NSString*)password
                                   success:(void (^)(MXCredentials *credentials))success
-                                  failure:(void (^)(NSError *error))failure;
+                                  failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the register fallback page to make registration via a web browser or a web view.
 
  @return the fallback page URL.
  */
-- (NSString*)registerFallback;
+- (NSString*)registerFallback NS_REFINED_FOR_SWIFT;
 
+/**
+ Reset the password server side
+ 
+ Check that the given email address is associated with any account
+ and then request the validation of an email address.
+ 
+ The identity server will send an email to this address. The end user
+ will have to click on the link it contains to validate the address.
+ 
+ @param email the email address to validate.
+ @param clientSecret a secret key generated by the client. ([MXTools generateSecret] creates such key)
+ @param sendAttempt the number of the attempt for the validation request. Increment this value to make the
+ identity server resend the email. Keep it to retry the request in case the previous request
+ failed.
+ 
+ @param success A block object called when the operation succeeds. It provides the id of the
+ forget password session.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)forgetPasswordForEmail:(NSString *)email
+                              clientSecret:(NSString *)clientSecret
+                               sendAttempt:(NSUInteger)sendAttempt
+                                   success:(void (^)(NSString *sid))success
+                                   failure:(void (^)(NSError *error))failure;
 
 #pragma mark - Login operations
 /**
@@ -244,14 +281,18 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)getLoginSession:(void (^)(MXAuthenticationSession *authSession))success
-                            failure:(void (^)(NSError *error))failure;
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Generic login action request.
 
  @see the register method for explanation of flows that require to make several request to the
  home server.
-
+ 
+ @note The caller may provide the device display name by adding @"initial_device_display_name" key
+ in the `parameters` dictionary. If the caller does not provide it, the device display name field
+ is filled with the device name.
+ 
  @param parameters the parameters required for the current login stage
  @param success A block object called when the operation succeeds. It provides the raw JSON response
  from the server.
@@ -261,12 +302,14 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)login:(NSDictionary*)parameters
                   success:(void (^)(NSDictionary *JSONResponse))success
-                  failure:(void (^)(NSError *error))failure;
+                  failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Log a user in.
 
  This method manages the full flow for simple login types and returns the credentials of the logged matrix user.
+ 
+ @note The device display name field is filled with the device name by default.
 
  @param loginType the login type. Only kMXLoginFlowTypePassword (m.login.password) is supported.
  @param username the user id (ex: "@bob:matrix.org") or the user id localpart (ex: "bob") of the user to register.
@@ -278,7 +321,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)loginWithLoginType:(NSString*)loginType username:(NSString*)username password:(NSString*)password
                                success:(void (^)(MXCredentials *credentials))success
-                               failure:(void (^)(NSError *error))failure;
+                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the login fallback page to make login via a web browser or a web view.
@@ -287,7 +330,7 @@ typedef enum : NSUInteger
 
  @return the fallback page URL.
  */
-- (NSString*)loginFallback;
+- (NSString*)loginFallback NS_REFINED_FOR_SWIFT;
 
 /**
  Reset the account password.
@@ -299,8 +342,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)resetPasswordWithParameters:(NSDictionary*)parameters
-                                        success:(void (^)())success
-                                        failure:(void (^)(NSError *error))failure;
+                                        success:(void (^)(void))success
+                                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Replace the account password.
@@ -313,8 +356,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)changePassword:(NSString*)oldPassword with:(NSString*)newPassword
-                           success:(void (^)())success
-                           failure:(void (^)(NSError *error))failure;
+                           success:(void (^)(void))success
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Invalidate the access token, so that it can no longer be used for authorization.
@@ -324,8 +367,8 @@ typedef enum : NSUInteger
  
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)logout:(void (^)())success
-                   failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)logout:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 #pragma mark - Account data
 /**
@@ -341,9 +384,87 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setAccountData:(NSDictionary*)data
                            forType:(NSString*)type
-                           success:(void (^)())success
-                           failure:(void (^)(NSError *error))failure;
+                           success:(void (^)(void))success
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
+/**
+ Gets a bearer token from the homeserver that the user can
+ present to a third party in order to prove their ownership
+ of the Matrix account they are logged into.
+
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)openIdToken:(void (^)(MXOpenIdToken *tokenObject))success
+                        failure:(void (^)(NSError *error))failure;
+
+#pragma mark - 3pid token request
+/**
+ Request the validation of an email address (like `requestEmailValidation` in identity server API),
+ but first checks that the given email address is not already associated with an account on this Home Server.
+ 
+ The identity server will send an email to this address. The end user
+ will have to click on the link it contains to validate the address.
+ 
+ Use the returned sid to complete operations that require authenticated email
+ like [MXRestClient add3PID:].
+ 
+ @param email the email address to validate.
+ @param isDuringRegistration  tell whether this request occurs during a registration flow.
+ @param clientSecret a secret key generated by the client. ([MXTools generateSecret] creates such key)
+ @param sendAttempt the number of the attempt for the validation request. Increment this value to make the
+ identity server resend the email. Keep it to retry the request in case the previous request
+ failed.
+ @param nextLink the link the validation page will automatically open. Can be nil
+ 
+ @param success A block object called when the operation succeeds. It provides the id of the
+ email validation session.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)requestTokenForEmail:(NSString*)email
+                    isDuringRegistration:(BOOL)isDuringRegistration
+                            clientSecret:(NSString*)clientSecret
+                             sendAttempt:(NSUInteger)sendAttempt
+                                nextLink:(NSString*)nextLink
+                                 success:(void (^)(NSString *sid))success
+                                 failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+/**
+ Request the validation of a phone number (like `requestPhoneNumberValidation` in identity server API),
+ but first checks that the given email address is not already associated with an account on this Home Server.
+ 
+ The identity server will send a validation token by sms. The end user
+ will have to send this token by using [MXRestClient submit3PIDValidationToken].
+ 
+ Use the returned sid to complete operations that require authenticated phone number
+ like [MXRestClient add3PID:].
+ 
+ @param phoneNumber the phone number (in international or national format).
+ @param isDuringRegistration  tell whether this request occurs during a registration flow.
+ @param countryCode the ISO 3166-1 country code representation (required when the phone number is in national format).
+ @param clientSecret a secret key generated by the client. ([MXTools generateSecret] creates such key)
+ @param sendAttempt the number of the attempt for the validation request. Increment this value to make the
+ identity server resend the sms token. Keep it to retry the request in case the previous request
+ failed.
+ @param nextLink the link the validation page will automatically open. Can be nil
+ 
+ @param success A block object called when the operation succeeds. It provides the id of the validation session and the msisdn.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)requestTokenForPhoneNumber:(NSString*)phoneNumber
+                          isDuringRegistration:(BOOL)isDuringRegistration
+                                   countryCode:(NSString*)countryCode
+                                  clientSecret:(NSString*)clientSecret
+                                   sendAttempt:(NSUInteger)sendAttempt
+                                      nextLink:(NSString *)nextLink
+                                       success:(void (^)(NSString *sid, NSString *msisdn))success
+                                       failure:(void (^)(NSError *error))failure;
 
 #pragma mark - Push Notifications
 /**
@@ -371,8 +492,8 @@ typedef enum : NSUInteger
                                     lang:(NSString *)lang
                                     data:(NSDictionary *)data
                                   append:(BOOL)append
-                                 success:(void (^)())success
-                                 failure:(void (^)(NSError *error))failure;
+                                 success:(void (^)(void))success
+                                 failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get all push notifications rules.
@@ -383,7 +504,7 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)pushRules:(void (^)(MXPushRulesResponse *pushRules))success
-                      failure:(void (^)(NSError *error))failure;
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Enable/Disable a push notification rule.
@@ -399,8 +520,8 @@ typedef enum : NSUInteger
                               scope:(NSString*)scope
                                kind:(MXPushRuleKind)kind
                              enable:(BOOL)enable
-                            success:(void (^)())success
-                            failure:(void (^)(NSError *error))failure;
+                            success:(void (^)(void))success
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Remove a push notification rule.
@@ -414,8 +535,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation *)removePushRule:(NSString*)ruleId
                               scope:(NSString*)scope
                                kind:(MXPushRuleKind)kind
-                            success:(void (^)())success
-                            failure:(void (^)(NSError *error))failure;
+                            success:(void (^)(void))success
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a new push rule.
@@ -435,8 +556,8 @@ typedef enum : NSUInteger
                          actions:(NSArray*)actions
                          pattern:(NSString*)pattern
                       conditions:(NSArray<NSDictionary *> *)conditions
-                         success:(void (^)())success
-                         failure:(void (^)(NSError *error))failure;
+                         success:(void (^)(void))success
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Room operations
@@ -444,7 +565,7 @@ typedef enum : NSUInteger
  Send a generic non state event to a room.
 
  @param roomId the id of the room.
- @param eventType the type of the event. @see MXEventType.
+ @param eventTypeString the type of the event. @see MXEventType.
  @param content the content that will be sent to the server as a JSON object.
  @param success A block object called when the operation succeeds. It returns
  the event id of the event generated on the home server
@@ -456,14 +577,15 @@ typedef enum : NSUInteger
                           eventType:(MXEventTypeString)eventTypeString
                             content:(NSDictionary*)content
                             success:(void (^)(NSString *eventId))success
-                            failure:(void (^)(NSError *error))failure;
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Send a generic state event to a room.
 
  @param roomId the id of the room.
- @param eventType the type of the event. @see MXEventType.
+ @param eventTypeString the type of the event. @see MXEventType.
  @param content the content that will be sent to the server as a JSON object.
+ @param stateKey the optional state key.
  @param success A block object called when the operation succeeds. It returns
  the event id of the event generated on the home server
  @param failure A block object called when the operation fails.
@@ -473,8 +595,9 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)sendStateEventToRoom:(NSString*)roomId
                                eventType:(MXEventTypeString)eventTypeString
                                  content:(NSDictionary*)content
+                                stateKey:(NSString*)stateKey
                                  success:(void (^)(NSString *eventId))success
-                                 failure:(void (^)(NSError *error))failure;
+                                 failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Send a message to a room
@@ -492,7 +615,7 @@ typedef enum : NSUInteger
                               msgType:(MXMessageType)msgType
                               content:(NSDictionary*)content
                               success:(void (^)(NSString *eventId))success
-                              failure:(void (^)(NSError *error))failure;
+                              failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Send a text message to a room
@@ -508,7 +631,7 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)sendTextMessageToRoom:(NSString*)roomId
                                      text:(NSString*)text
                                   success:(void (^)(NSString *eventId))success
-                                  failure:(void (^)(NSError *error))failure;
+                                  failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 /**
@@ -523,8 +646,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomTopic:(NSString*)roomId
                            topic:(NSString*)topic
-                         success:(void (^)())success
-                         failure:(void (^)(NSError *error))failure;
+                         success:(void (^)(void))success
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the topic of a room.
@@ -537,7 +660,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)topicOfRoom:(NSString*)roomId
                         success:(void (^)(NSString *topic))success
-                        failure:(void (^)(NSError *error))failure;
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 /**
@@ -552,8 +675,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomAvatar:(NSString*)roomId
                            avatar:(NSString*)avatar
-                          success:(void (^)())success
-                          failure:(void (^)(NSError *error))failure;
+                          success:(void (^)(void))success
+                          failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the avatar of a room.
@@ -566,7 +689,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)avatarOfRoom:(NSString*)roomId
                          success:(void (^)(NSString *avatar))success
-                         failure:(void (^)(NSError *error))failure;
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the name of a room.
@@ -580,8 +703,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomName:(NSString*)roomId
                            name:(NSString*)name
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the name of a room.
@@ -594,7 +717,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)nameOfRoom:(NSString*)roomId
                        success:(void (^)(NSString *name))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the history visibility of a room.
@@ -608,8 +731,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomHistoryVisibility:(NSString*)roomId
                            historyVisibility:(MXRoomHistoryVisibility)historyVisibility
-                                     success:(void (^)())success
-                                     failure:(void (^)(NSError *error))failure;
+                                     success:(void (^)(void))success
+                                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the history visibility of a room.
@@ -622,7 +745,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)historyVisibilityOfRoom:(NSString*)roomId
                                     success:(void (^)(MXRoomHistoryVisibility historyVisibility))success
-                                    failure:(void (^)(NSError *error))failure;
+                                    failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the join rule of a room.
@@ -636,8 +759,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomJoinRule:(NSString*)roomId
                            joinRule:(MXRoomJoinRule)joinRule
-                            success:(void (^)())success
-                            failure:(void (^)(NSError *error))failure;
+                            success:(void (^)(void))success
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the join rule of a room.
@@ -650,7 +773,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)joinRuleOfRoom:(NSString*)roomId
                            success:(void (^)(MXRoomJoinRule joinRule))success
-                           failure:(void (^)(NSError *error))failure;
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the guest access of a room.
@@ -664,8 +787,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomGuestAccess:(NSString*)roomId
                            guestAccess:(MXRoomGuestAccess)guestAccess
-                               success:(void (^)())success
-                               failure:(void (^)(NSError *error))failure;
+                               success:(void (^)(void))success
+                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the guest access of a room.
@@ -678,7 +801,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)guestAccessOfRoom:(NSString*)roomId
                               success:(void (^)(MXRoomGuestAccess guestAccess))success
-                              failure:(void (^)(NSError *error))failure;
+                              failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the directory visibility of a room on the current homeserver.
@@ -692,8 +815,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomDirectoryVisibility:(NSString*)roomId
                            directoryVisibility:(MXRoomDirectoryVisibility)directoryVisibility
-                                       success:(void (^)())success
-                                       failure:(void (^)(NSError *error))failure;
+                                       success:(void (^)(void))success
+                                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the visibility of a room in the current HS's room directory.
@@ -706,7 +829,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)directoryVisibilityOfRoom:(NSString*)roomId
                                       success:(void (^)(MXRoomDirectoryVisibility directoryVisibility))success
-                                      failure:(void (^)(NSError *error))failure;
+                                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a new mapping from room alias to room ID.
@@ -720,8 +843,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)addRoomAlias:(NSString*)roomId
                            alias:(NSString*)roomAlias
-                         success:(void (^)())success
-                         failure:(void (^)(NSError *error))failure;
+                         success:(void (^)(void))success
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Remove a mapping of room alias to room ID.
@@ -733,8 +856,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)removeRoomAlias:(NSString*)roomAlias
-                            success:(void (^)())success
-                            failure:(void (^)(NSError *error))failure;
+                            success:(void (^)(void))success
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the canonical alias of the room.
@@ -748,8 +871,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setRoomCanonicalAlias:(NSString*)roomId
                            canonicalAlias:(NSString *)canonicalAlias
-                           success:(void (^)())success
-                           failure:(void (^)(NSError *error))failure;
+                           success:(void (^)(void))success
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the canonical alias.
@@ -762,7 +885,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)canonicalAliasOfRoom:(NSString*)roomId
                           success:(void (^)(NSString *canonicalAlias))success
-                          failure:(void (^)(NSError *error))failure;
+                          failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Join a room.
@@ -775,7 +898,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)joinRoom:(NSString*)roomIdOrAlias
                      success:(void (^)(NSString *theRoomId))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Join a room where the user has been invited by a 3PID invitation.
@@ -791,7 +914,7 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)joinRoom:(NSString*)roomIdOrAlias
         withThirdPartySigned:(NSDictionary*)thirdPartySigned
                      success:(void (^)(NSString *theRoomId))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Leave a room.
@@ -803,8 +926,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)leaveRoom:(NSString*)roomId
-                      success:(void (^)())success
-                      failure:(void (^)(NSError *error))failure;
+                      success:(void (^)(void))success
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Invite a user to a room.
@@ -818,8 +941,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)inviteUser:(NSString*)userId
                         toRoom:(NSString*)roomId
-                       success:(void (^)())success
-                       failure:(void (^)(NSError *error))failure;
+                       success:(void (^)(void))success
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Invite a user to a room based on their email address.
@@ -833,14 +956,14 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)inviteUserByEmail:(NSString*)email
                                toRoom:(NSString*)roomId
-                              success:(void (^)())success
-                              failure:(void (^)(NSError *error))failure;
+                              success:(void (^)(void))success
+                              failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Invite a user to a room based on a third-party identifier.
 
  @param medium the medium to invite the user e.g. "email".
- @param medium address the address for the specified medium.
+ @param address the address for the specified medium.
  @param roomId the id of the room.
  @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
@@ -850,8 +973,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)inviteByThreePid:(NSString*)medium
                              address:(NSString*)address
                               toRoom:(NSString*)roomId
-                             success:(void (^)())success
-                             failure:(void (^)(NSError *error))failure;
+                             success:(void (^)(void))success
+                             failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Kick a user from a room.
@@ -866,8 +989,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)kickUser:(NSString*)userId
                     fromRoom:(NSString*)roomId
                       reason:(NSString*)reason
-                     success:(void (^)())success
-                     failure:(void (^)(NSError *error))failure;
+                     success:(void (^)(void))success
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Ban a user in a room.
@@ -882,8 +1005,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)banUser:(NSString*)userId
                      inRoom:(NSString*)roomId
                      reason:(NSString*)reason
-                    success:(void (^)())success
-                    failure:(void (^)(NSError *error))failure;
+                    success:(void (^)(void))success
+                    failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Unban a user in a room.
@@ -897,8 +1020,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)unbanUser:(NSString*)userId
                        inRoom:(NSString*)roomId
-                      success:(void (^)())success
-                      failure:(void (^)(NSError *error))failure;
+                      success:(void (^)(void))success
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a room.
@@ -918,7 +1041,7 @@ typedef enum : NSUInteger
                      roomAlias:(NSString*)roomAlias
                          topic:(NSString*)topic
                        success:(void (^)(MXCreateRoomResponse *response))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_SWIFT_UNAVAILABLE("TEST");
 
 
 /**
@@ -947,7 +1070,7 @@ typedef enum : NSUInteger
                       isDirect:(BOOL)isDirect
                         preset:(MXRoomPreset)preset
                        success:(void (^)(MXCreateRoomResponse *response))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Create a room.
@@ -961,7 +1084,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)createRoom:(NSDictionary*)parameters
                        success:(void (^)(MXCreateRoomResponse *response))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get a list of messages for this room.
@@ -969,8 +1092,8 @@ typedef enum : NSUInteger
  @param roomId the id of the room.
  @param from the token to start getting results from.
  @param direction `MXTimelineDirectionForwards` or `MXTimelineDirectionBackwards`
- @param limit (optional, use -1 to not defined this value) the maximum nuber of messages to return.
- @param filter to filter returned events with.
+ @param limit (optional, use -1 to not defined this value) the maximum number of messages to return.
+ @param roomEventFilter to filter returned events with.
 
  @param success A block object called when the operation succeeds. It provides a `MXPaginationResponse` object.
  @param failure A block object called when the operation fails.
@@ -983,7 +1106,7 @@ typedef enum : NSUInteger
                               limit:(NSUInteger)limit
                              filter:(MXRoomEventFilter*)roomEventFilter
                             success:(void (^)(MXPaginationResponse *paginatedResponse))success
-                            failure:(void (^)(NSError *error))failure;
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get a list of members for this room.
@@ -998,7 +1121,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)membersOfRoom:(NSString*)roomId
                           success:(void (^)(NSArray *roomMemberEvents))success
-                          failure:(void (^)(NSError *error))failure;
+                          failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get a list of all the current state events for this room.
@@ -1015,7 +1138,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)stateOfRoom:(NSString*)roomId
                         success:(void (^)(NSDictionary *JSONData))success
-                        failure:(void (^)(NSError *error))failure;
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Inform the home server that the user is typing (or not) in this room.
@@ -1033,8 +1156,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)sendTypingNotificationInRoom:(NSString*)roomId
                                           typing:(BOOL)typing
                                          timeout:(NSUInteger)timeout
-                                         success:(void (^)())success
-                                         failure:(void (^)(NSError *error))failure;
+                                         success:(void (^)(void))success
+                                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Redact an event in a room.
@@ -1051,8 +1174,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)redactEvent:(NSString*)eventId
                          inRoom:(NSString*)roomId
                          reason:(NSString*)reason
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Report an event.
@@ -1072,8 +1195,8 @@ typedef enum : NSUInteger
                          inRoom:(NSString*)roomId
                           score:(NSInteger)score
                          reason:(NSString*)reason
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get all the current information for this room, including messages and state events.
@@ -1090,7 +1213,7 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)initialSyncOfRoom:(NSString*)roomId
                             withLimit:(NSInteger)limit
                               success:(void (^)(MXRoomInitialSync *roomInitialSync))success
-                              failure:(void (^)(NSError *error))failure;
+                              failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 /**
@@ -1112,7 +1235,7 @@ typedef enum : NSUInteger
                             inRoom:(NSString*)roomId
                              limit:(NSUInteger)limit
                            success:(void (^)(MXEventContext *eventContext))success
-                           failure:(void (^)(NSError *error))failure;
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Room tags operations
@@ -1128,7 +1251,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)tagsOfRoom:(NSString*)roomId
                        success:(void (^)(NSArray<MXRoomTag*> *tags))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Add a tag to a room.
@@ -1147,8 +1270,8 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)addTag:(NSString*)tag
                  withOrder:(NSString*)order
                     toRoom:(NSString*)roomId
-                   success:(void (^)())success
-                   failure:(void (^)(NSError *error))failure;
+                   success:(void (^)(void))success
+                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 /**
  Remove a tag from a room.
 
@@ -1162,8 +1285,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)removeTag:(NSString*)tag
                      fromRoom:(NSString*)roomId
-                      success:(void (^)())success
-                      failure:(void (^)(NSError *error))failure;
+                      success:(void (^)(void))success
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Profile operations
@@ -1178,8 +1301,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)setDisplayName:(NSString*)displayname
-                           success:(void (^)())success
-                           failure:(void (^)(NSError *error))failure;
+                           success:(void (^)(void))success
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the display name of a user.
@@ -1193,7 +1316,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)displayNameForUser:(NSString*)userId
                                success:(void (^)(NSString *displayname))success
-                               failure:(void (^)(NSError *error))failure;
+                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Set the logged-in user avatar url.
@@ -1206,8 +1329,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)setAvatarUrl:(NSString*)avatarUrl
-                         success:(void (^)())success
-                         failure:(void (^)(NSError *error))failure;
+                         success:(void (^)(void))success
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the avatar url of a user.
@@ -1220,12 +1343,12 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)avatarUrlForUser:(NSString*)userId
                              success:(void (^)(NSString *avatarUrl))success
-                             failure:(void (^)(NSError *error))failure;
+                             failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Link an authenticated 3rd party id to the Matrix user.
 
- @param sid the id provided during the 3PID validation session ([MXRestClient requestEmailValidation:]).
+ @param sid the id provided during the 3PID validation session (see [MXRestClient requestTokenForEmail:], or [MXRestClient requestEmailValidation:]).
  @param clientSecret the same secret key used in the validation session.
  @param bind whether the homeserver should also bind this third party identifier
  to the account's Matrix ID with the identity server.
@@ -1238,8 +1361,23 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)add3PID:(NSString*)sid
                clientSecret:(NSString*)clientSecret
                        bind:(BOOL)bind
-                    success:(void (^)())success
-                    failure:(void (^)(NSError *error))failure;
+                    success:(void (^)(void))success
+                    failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+/**
+ Remove a 3rd party id from the Matrix user information.
+ 
+ @param address the 3rd party id.
+ @param medium the type of the 3rd party id.
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)remove3PID:(NSString*)address
+                        medium:(NSString*)medium
+                       success:(void (^)(void))success
+                       failure:(void (^)(NSError *error))failure;
 
 /**
  List all 3PIDs linked to the Matrix user account.
@@ -1250,7 +1388,7 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)threePIDs:(void (^)(NSArray<MXThirdPartyIdentifier*> *threePIDs))success
-                      failure:(void (^)(NSError *error))failure;
+                      failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Presence operations
@@ -1266,8 +1404,8 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)setPresence:(MXPresence)presence andStatusMessage:(NSString*)statusMessage
-                        success:(void (^)())success
-                        failure:(void (^)(NSError *error))failure;
+                        success:(void (^)(void))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the presence status of a user.
@@ -1281,7 +1419,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)presence:(NSString*)userId
                      success:(void (^)(MXPresenceResponse *presence))success
-                     failure:(void (^)(NSError *error))failure;
+                     failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Sync
@@ -1313,34 +1451,67 @@ typedef enum : NSUInteger
                        setPresence:(NSString*)setPresence
                             filter:(NSString*)filterId
                            success:(void (^)(MXSyncResponse *syncResponse))success
-                           failure:(void (^)(NSError *error))failure;
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
 #pragma mark - Directory operations
 /**
- Get the list of public rooms hosted by the home server.
+ Get the list of public rooms hosted by a home server.
+ 
+ @discussion
+ Pagination parameters (`limit` and `since`) should be used in order to limit
+ homeserver resources usage.
+ 
+ @param server (optional) the remote server to query for the room list. If nil, get the user
+               homeserver's public room list.
+ @param limit (optional, use -1 to not defined this value) the maximum number of entries to return.
+ @param since (optional) token to paginate from.
+ @param filter (optional) the string to search for.
+ @param thirdPartyInstanceId (optional) returns rooms published to specific lists on 
+                             a third party instance (like an IRC bridge).
+ @param includeAllNetworks if YES, returns all rooms that have been published to any list. 
+                           NO to return rooms on the main, default list.
 
- @param success A block object called when the operation succeeds. rooms is an array of MXPublicRoom objects
+ @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
 
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)publicRooms:(void (^)(NSArray *rooms))success
-                        failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)publicRoomsOnServer:(NSString*)server
+                                  limit:(NSUInteger)limit
+                                  since:(NSString*)since
+                                 filter:(NSString*)filter
+                   thirdPartyInstanceId:(NSString*)thirdPartyInstanceId
+                     includeAllNetworks:(BOOL)includeAllNetworks
+                                success:(void (^)(MXPublicRoomsResponse *publicRoomsResponse))success
+                                failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get the room ID corresponding to this room alias
 
  @param roomAlias the alias of the room to look for.
 
- @param success A block object called when the operation succeeds. It provides an array of `MXRoomMember`.
+ @param success A block object called when the operation succeeds. It provides the ID of the room.
  @param failure A block object called when the operation fails.
 
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)roomIDForRoomAlias:(NSString*)roomAlias
                                success:(void (^)(NSString *roomId))success
-                               failure:(void (^)(NSError *error))failure;
+                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+
+#pragma mark - Third party Lookup API
+/**
+ Get the third party protocols that can be reached using this HS.
+
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)thirdpartyProtocols:(void (^)(MXThirdpartyProtocolsResponse *thirdpartyProtocolsResponse))success
+                                failure:(void (^)(NSError *error))failure;
 
 
 #pragma mark - Media Repository API
@@ -1349,7 +1520,7 @@ typedef enum : NSUInteger
 
  @param data the content to upload.
  @param filename optional filename
- @param mimetype the content type (image/jpeg, audio/aac...)
+ @param mimeType the content type (image/jpeg, audio/aac...)
  @param timeoutInSeconds the maximum time in ms the SDK must wait for the server response.
 
  @param success A block object called when the operation succeeds. It provides the uploaded content url.
@@ -1364,7 +1535,7 @@ typedef enum : NSUInteger
                           timeout:(NSTimeInterval)timeoutInSeconds
                           success:(void (^)(NSString *url))success
                           failure:(void (^)(NSError *error))failure
-                   uploadProgress:(void (^)(NSProgress *uploadProgress))uploadProgress;
+                   uploadProgress:(void (^)(NSProgress *uploadProgress))uploadProgress NS_REFINED_FOR_SWIFT;
 
 /**
  Resolve a Matrix media content URI (in the form of "mxc://...") into an HTTP URL.
@@ -1409,26 +1580,21 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)lookup3pid:(NSString*)address
                      forMedium:(MX3PIDMedium)medium
                        success:(void (^)(NSString *userId))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Retrieve user matrix ids from a list of 3rd party ids.
 
- `addresses` and `media` arrays must have the same count.
-
- @param addresses the list of ids of the user in the 3rd party system.
- @param media the list of 3rd party systems (MX3PIDMedium type).
-
- @param success A block object called when the operation succeeds. It provides a list of Matrix user ids
- in the same order as passed arrays. A not found Matrix user id is indicated by NSNull in this array
+ @param threepids the list of 3rd party ids: [[<(MX3PIDMedium)media1>, <(NSString*)address1>], [<(MX3PIDMedium)media2>, <(NSString*)address2>], ...].
+ @param success A block object called when the operation succeeds. It provides the array of the discovered users returned by the identity server.
+ [[<(MX3PIDMedium)media>, <(NSString*)address>, <(NSString*)userId>], ...].
  @param failure A block object called when the operation fails.
 
  @return a MXHTTPOperation instance.
  */
-- (void)lookup3pids:(NSArray*)addresses
-           forMedia:(NSArray*)media
-            success:(void (^)(NSArray *userIds))success
-            failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)lookup3pids:(NSArray*)threepids
+                        success:(void (^)(NSArray *discoveredUsers))success
+                        failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Request the validation of an email address.
@@ -1457,27 +1623,59 @@ typedef enum : NSUInteger
                                sendAttempt:(NSUInteger)sendAttempt
                                   nextLink:(NSString*)nextLink
                                    success:(void (^)(NSString *sid))success
-                                   failure:(void (^)(NSError *error))failure;
+                                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
- Submit a token received by an email after the call of [self requestEmailValidation].
-
- In case of success, the email has been validated.
-
- @param token the token received in the email.
- @param clientSecret the clientSecret in the email.
- @param sid the email validation session id in the email.
-
- @param success A block object called when the operation succeeds.
+ Request the validation of a phone number.
+ 
+ The identity server will send a validation token by sms. The end user
+ will have to send this token by using [MXRestClient submit3PIDValidationToken].
+ 
+ Use the returned sid to complete operations that require authenticated phone number
+ like [MXRestClient add3PID:].
+ 
+ @param phoneNumber the phone number (in international or national format).
+ @param countryCode the ISO 3166-1 country code representation (required when the phone number is in national format).
+ @param clientSecret a secret key generated by the client. ([MXTools generateSecret] creates such key)
+ @param sendAttempt the number of the attempt for the validation request. Increment this value to make the
+ identity server resend the sms token. Keep it to retry the request in case the previous request
+ failed.
+ @param nextLink the link the validation page will automatically open. Can be nil
+ 
+ @param success A block object called when the operation succeeds. It provides the id of the validation session and the msisdn.
  @param failure A block object called when the operation fails.
-
+ 
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)submitEmailValidationToken:(NSString*)token
-                                  clientSecret:(NSString*)clientSecret
-                                           sid:(NSString*)sid
-                                       success:(void (^)())success
-                                       failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)requestPhoneNumberValidation:(NSString*)phoneNumber
+                                     countryCode:(NSString*)countryCode
+                                    clientSecret:(NSString*)clientSecret
+                                     sendAttempt:(NSUInteger)sendAttempt
+                                        nextLink:(NSString *)nextLink
+                                         success:(void (^)(NSString *sid, NSString *msisdn))success
+                                         failure:(void (^)(NSError *error))failure;
+
+/**
+ Submit the validation token received by an email or a sms.
+ 
+ In case of success, the related third-party id has been validated.
+ 
+ @param token the validation token.
+ @param medium the type of the third-party id (see kMX3PIDMediumEmail, kMX3PIDMediumMSISDN).
+ @param clientSecret the clientSecret used during the validation request.
+ @param sid the validation session id returned by the server.
+ 
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)submit3PIDValidationToken:(NSString *)token
+                                        medium:(NSString *)medium
+                                  clientSecret:(NSString *)clientSecret
+                                           sid:(NSString *)sid
+                                       success:(void (^)(void))success
+                                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Sign a 3PID URL.
@@ -1488,10 +1686,16 @@ typedef enum : NSUInteger
 
  @return a MXHTTPOperation instance.
  */
-
 - (MXHTTPOperation*)signUrl:(NSString*)signUrl
                     success:(void (^)(NSDictionary *thirdPartySigned))success
-                    failure:(void (^)(NSError *error))failure;
+                    failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+/**
+ Set the certificates used to evaluate server trust according to the SSL pinning mode.
+
+ @param pinnedCertificates the pinned certificates.
+ */
+-(void)setPinnedCertificates:(NSSet <NSData *> *)pinnedCertificates;
 
 #pragma mark - VoIP API
 /**
@@ -1504,27 +1708,43 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)turnServer:(void (^)(MXTurnServerResponse *turnServerResponse))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 
-#pragma mark - read receipts
+#pragma mark - read receipt
 /**
  Send a read receipt.
 
  @param roomId the id of the room.
  @param eventId the id of the event.
 
- @param success A block object called when the operation succeeds. It returns
- the event id of the event generated on the home server
+ @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
 
  @return a MXHTTPOperation instance.
  */
-- (MXHTTPOperation*)sendReadReceipts:(NSString*)roomId
-                             eventId:(NSString*)eventId
-                             success:(void (^)(NSString *eventId))success
-                             failure:(void (^)(NSError *error))failure;
+- (MXHTTPOperation*)sendReadReceipt:(NSString*)roomId
+                            eventId:(NSString*)eventId
+                            success:(void (^)(void))success
+                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
+#pragma mark - read marker
+/**
+ Send a read marker with an optional read receipt.
+ 
+ @param roomId the id of the room.
+ @param readMarkerEventId the read marker event Id.
+ @param readReceiptEventId the nullable read receipt event Id.
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+ 
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)sendReadMarker:(NSString*)roomId
+                 readMarkerEventId:(NSString*)readMarkerEventId
+                readReceiptEventId:(NSString*)readReceiptEventId
+                           success:(void (^)(void))success
+                           failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 #pragma mark - Search
 /**
@@ -1547,7 +1767,7 @@ typedef enum : NSUInteger
                                 afterLimit:(NSUInteger)afterLimit
                                  nextBatch:(NSString*)nextBatch
                                    success:(void (^)(MXSearchRoomEventResults *roomEventResults))success
-                                   failure:(void (^)(NSError *error))failure;
+                                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Make a search.
@@ -1563,7 +1783,24 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)search:(NSDictionary*)parameters
                  nextBatch:(NSString*)nextBatch
                    success:(void (^)(MXSearchRoomEventResults *roomEventResults))success
-                   failure:(void (^)(NSError *error))failure;
+                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+
+/**
+ Search users on homeserver user directory.
+
+ @param pattern the search pattern.
+ @param limit the number of users to return.
+
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
+
+ @return a MXHTTPOperation instance.
+*/
+- (MXHTTPOperation*)searchUsers:(NSString*)pattern
+                          limit:(NSUInteger)limit
+                        success:(void (^)(MXUserSearchResponse *userSearchResponse))success
+                        failure:(void (^)(NSError *error))failure;
 
 
 #pragma mark - Crypto
@@ -1583,12 +1820,14 @@ typedef enum : NSUInteger
 - (MXHTTPOperation*)uploadKeys:(NSDictionary*)deviceKeys oneTimeKeys:(NSDictionary*)oneTimeKeys
                      forDevice:(NSString*)deviceId
                        success:(void (^)(MXKeysUploadResponse *keysUploadResponse))success
-                       failure:(void (^)(NSError *error))failure;
+                       failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Download device keys.
 
  @param userIds list of users to get keys for.
+ @param token sync token to pass in the query request, to help
+              the HS give the most recent results. It can be nil.
 
  @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
@@ -1596,8 +1835,9 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)downloadKeysForUsers:(NSArray<NSString*>*)userIds
+                                   token:(NSString*)token
                                  success:(void (^)(MXKeysQueryResponse *keysQueryResponse))success
-                                 failure:(void (^)(NSError *error))failure;
+                                 failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  * Claim one-time keys.
@@ -1611,7 +1851,24 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)claimOneTimeKeysForUsersDevices:(MXUsersDevicesMap<NSString*>*)usersDevicesKeyTypesMap
                                             success:(void (^)(MXKeysClaimResponse *keysClaimResponse))success
-                                            failure:(void (^)(NSError *error))failure;
+                                            failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
+/**
+ Ask the server for a list of users who have changed their device lists
+ between a pair of sync tokens
+
+ @param fromToken the old token.
+ @param toToken the new token.
+
+ @param success A block object called when the operation succeeds. deviceLists is the
+                list of users with a change in their devices.
+ @param failure A block object called when the operation fails.
+
+ @return a MXHTTPOperation instance.
+ */
+- (MXHTTPOperation*)keyChangesFrom:(NSString*)fromToken to:(NSString*)toToken
+                           success:(void (^)(MXDeviceListResponse *deviceLists))success
+                           failure:(void (^)(NSError *error))failure;
 
 
 #pragma mark - Direct-to-device messaging
@@ -1620,6 +1877,7 @@ typedef enum : NSUInteger
 
  @param eventType the type of event to send
  @param contentMap content to send. Map from user_id to device_id to content dictionary.
+ @param txnId the transaction id to use. If nil, one will be generated.
 
  @param success A block object called when the operation succeeds.
  @param failure A block object called when the operation fails.
@@ -1627,8 +1885,9 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)sendToDevice:(NSString*)eventType contentMap:(MXUsersDevicesMap<NSDictionary*>*)contentMap
-                         success:(void (^)())success
-                         failure:(void (^)(NSError *error))failure;
+                           txnId:(NSString*)txnId
+                         success:(void (^)(void))success
+                         failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 #pragma mark - Device Management
 /**
@@ -1640,7 +1899,7 @@ typedef enum : NSUInteger
  @return a MXHTTPOperation instance.
  */
 - (MXHTTPOperation*)devices:(void (^)(NSArray<MXDevice *> *))success
-                    failure:(void (^)(NSError *error))failure;
+                    failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get information on a single device, by device id.
@@ -1653,7 +1912,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)deviceByDeviceId:(NSString *)deviceId
                              success:(void (^)(MXDevice *))success
-                             failure:(void (^)(NSError *error))failure;
+                             failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Update the display name of a given device.
@@ -1667,8 +1926,8 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)setDeviceName:(NSString *)deviceName
                       forDeviceId:(NSString *)deviceId
-                          success:(void (^)())success
-                          failure:(void (^)(NSError *error))failure;
+                          success:(void (^)(void))success
+                          failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Get an authentication session to delete a device.
@@ -1681,7 +1940,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)getSessionToDeleteDeviceByDeviceId:(NSString *)deviceId
                                                success:(void (^)(MXAuthenticationSession *authSession))success
-                                               failure:(void (^)(NSError *error))failure;
+                                               failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
 
 /**
  Delete the given device, and invalidates any access token associated with it.
@@ -1697,6 +1956,7 @@ typedef enum : NSUInteger
  */
 - (MXHTTPOperation*)deleteDeviceByDeviceId:(NSString *)deviceId
                                 authParams:(NSDictionary*)authParameters
-                                   success:(void (^)())success
-                                   failure:(void (^)(NSError *error))failure;
+                                   success:(void (^)(void))success
+                                   failure:(void (^)(NSError *error))failure NS_REFINED_FOR_SWIFT;
+
 @end

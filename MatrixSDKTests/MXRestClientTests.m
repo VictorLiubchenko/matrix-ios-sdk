@@ -1,6 +1,7 @@
 /*
  Copyright 2014 OpenMarket Ltd
- 
+ Copyright 2017 Vector Creations Ltd
+
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
  You may obtain a copy of the License at
@@ -1396,6 +1397,27 @@
 }
 
 
+#pragma mark - Users search
+- (void)testUsersSearch
+{
+    [matrixSDKTestsData doMXRestClientTestWithBobAndAliceInARoom:self readyToTest:^(MXRestClient *bobRestClient, MXRestClient *aliceRestClient, NSString *roomId, XCTestExpectation *expectation) {
+
+        // Do a search with no expected results
+        [bobRestClient searchUsers:@"random" limit:1 success:^(MXUserSearchResponse *userSearchResponse) {
+
+            XCTAssertFalse(userSearchResponse.limited);
+            XCTAssertEqual(userSearchResponse.results.count, 0);
+
+            [expectation fulfill];
+
+        } failure:^(NSError *error) {
+            XCTFail(@"The request should not fail - NSError: %@", error);
+            [expectation fulfill];
+        }];
+    }];
+}
+
+
 #pragma mark - Crypto
 #ifdef MX_CRYPTO
 - (void)testDeviceKeys
@@ -1421,7 +1443,7 @@
             XCTAssertEqual([keysUploadResponse oneTimeKeyCountsForAlgorithm:@"deded"], 0, @"It must response 0 for any algo");
 
             // And download back it
-            [bobRestClient downloadKeysForUsers:@[bobRestClient.credentials.userId] success:^(MXKeysQueryResponse *keysQueryResponse) {
+            [bobRestClient downloadKeysForUsers:@[bobRestClient.credentials.userId] token:nil success:^(MXKeysQueryResponse *keysQueryResponse) {
 
                 XCTAssert(keysQueryResponse.deviceKeys);
 
@@ -1629,6 +1651,26 @@
             XCTFail(@"The request should not fail - NSError: %@", error);
             [expectation fulfill];
         }];
+    }];
+}
+
+- (void)testThirdpartyProtocols
+{
+    [matrixSDKTestsData doMXRestClientTestWithBob:self readyToTest:^(MXRestClient *bobRestClient, XCTestExpectation *expectation) {
+
+        [bobRestClient thirdpartyProtocols:^(MXThirdpartyProtocolsResponse *thirdpartyProtocolsResponse) {
+
+            XCTAssert(thirdpartyProtocolsResponse);
+            XCTAssert(thirdpartyProtocolsResponse.protocols);
+            XCTAssertEqual(thirdpartyProtocolsResponse.protocols.count, 0, @"There is no bridge on the test HS");
+
+            [expectation fulfill];
+
+        } failure:^(NSError *error) {
+            XCTFail(@"The request should not fail - NSError: %@", error);
+            [expectation fulfill];
+        }];
+
     }];
 }
 

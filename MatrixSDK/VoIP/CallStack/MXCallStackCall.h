@@ -14,8 +14,17 @@
  limitations under the License.
  */
 
+#import <Foundation/Foundation.h>
+
+#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
+#elif TARGET_OS_OSX
+#import <Cocoa/Cocoa.h>
+#endif
+
 #import <AVFoundation/AVCaptureDevice.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 @protocol MXCallStackCallDelegate;
 
@@ -34,7 +43,7 @@
  @param failure A block object called when the operation fails.
  */
 - (void)startCapturingMediaWithVideo:(BOOL)video
-                             success:(void (^)())success
+                             success:(void (^)(void))success
                              failure:(void (^)(NSError *error))failure;
 
 /**
@@ -53,14 +62,14 @@
  @param username the username of the Matrix user on these TURN servers.
  @param password the associated password.
  */
-- (void)addTURNServerUris:(NSArray*)uris withUsername:(NSString*)username password:(NSString*)password;
+- (void)addTURNServerUris:(NSArray<NSString *> *)uris withUsername:(nullable NSString *)username password:(nullable NSString *)password;
 
 /**
  Make the call stack process an incoming candidate.
  
  @param candidate the candidate description.
  */
-- (void)handleRemoteCandidate:(NSDictionary*)candidate;
+- (void)handleRemoteCandidate:(NSDictionary<NSString *, NSObject *> *)candidate;
 
 
 #pragma mark - Incoming call
@@ -70,8 +79,12 @@
  This offer came within a m.call.invite event sent by the peer.
 
  @param sdpOffer the description of the peer media.
+ @param success A block object called when the operation succeeds.
+ @param failure A block object called when the operation fails.
  */
-- (void)handleOffer:(NSString*)sdpOffer;
+- (void)handleOffer:(NSString *)sdpOffer
+            success:(void (^)(void))success
+            failure:(void (^)(NSError *error))failure;
 
 /**
  Generate an answer to send to the peer.
@@ -86,7 +99,7 @@
  @param failure A block object called when the operation fails.
  */
 - (void)createAnswer:(void (^)(NSString *sdpAnswer))success
-            failure:(void (^)(NSError *error))failure;
+             failure:(void (^)(NSError *error))failure;
 
 
 #pragma mark - Outgoing call
@@ -111,8 +124,8 @@
  @param success A block object called when the operation succeeds. 
  @param failure A block object called when the operation fails.
  */
-- (void)handleAnswer:(NSString*)sdp
-             success:(void (^)())success
+- (void)handleAnswer:(NSString *)sdp
+             success:(void (^)(void))success
              failure:(void (^)(NSError *error))failure;
 
 
@@ -120,23 +133,34 @@
 /**
  The delegate.
  */
-@property (nonatomic) id<MXCallStackCallDelegate> delegate;
+@property (nonatomic, nullable, weak) id<MXCallStackCallDelegate> delegate;
 
 /**
  The UIView that receives frames from the user's camera.
  */
-@property (nonatomic) UIView *selfVideoView;
+#if TARGET_OS_IPHONE
+@property (nonatomic, nullable) UIView *selfVideoView;
+#elif TARGET_OS_OSX
+@property (nonatomic, nullable) NSView *selfVideoView;
+#endif
+
 
 /**
  The UIView that receives frames from the remote camera.
  */
-@property (nonatomic) UIView *remoteVideoView;
+#if TARGET_OS_IPHONE
+@property (nonatomic, nullable) UIView *remoteVideoView;
+#elif TARGET_OS_OSX
+@property (nonatomic, nullable) NSView *remoteVideoView;
+#endif
 
 /**
  The camera orientation. It is used to display the video in the right direction
  on the other peer device.
  */
+#if TARGET_OS_IPHONE
 @property (nonatomic) UIDeviceOrientation selfOrientation;
+#endif
 
 /**
  Mute state of the outbound audio.
@@ -165,7 +189,7 @@
 
 #pragma mark - MXCallStackCallDelegate
 /**
- Delegate for `MXCallStackCal` object
+ Delegate for `MXCallStackCall` object
 */
 @protocol MXCallStackCallDelegate <NSObject>
 
@@ -177,7 +201,7 @@
  @param sdpMLineIndex the index of m-line in the SDP.
  @param candidate the candidate SDP.
  */
-- (void)callStackCall:(id<MXCallStackCall>)callStackCall onICECandidateWithSdpMid:(NSString*)sdpMid sdpMLineIndex:(NSInteger)sdpMLineIndex candidate:(NSString*)candidate;
+- (void)callStackCall:(id<MXCallStackCall>)callStackCall onICECandidateWithSdpMid:(NSString *)sdpMid sdpMLineIndex:(NSInteger)sdpMLineIndex candidate:(NSString *)candidate;
 
 /**
  Tells the delegate an error occured.
@@ -185,6 +209,15 @@
  @param callStackCall the corresponding instance.
  @param error the error.
  */
-- (void)callStackCall:(id<MXCallStackCall>)callStackCall onError:(NSError*)error;
+- (void)callStackCall:(id<MXCallStackCall>)callStackCall onError:(nullable NSError *)error;
+
+/**
+ Tells the delegate that connection was successfully established
+ 
+ @param callStackCall the corresponding instance.
+ */
+- (void)callStackCallDidConnect:(id<MXCallStackCall>)callStackCall;
 
 @end
+
+NS_ASSUME_NONNULL_END
